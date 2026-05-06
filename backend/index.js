@@ -32,36 +32,27 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Función para limpiar precios (maneja 6,990 -> 6990)
 // Función para limpiar precios - VERSIÓN SIMPLE
 // Función para limpiar precios - RECHAZA comas y puntos
+// Función para limpiar precios - TRANSFORMA comas automáticamente
 function cleanPrice(price) {
   if (!price) return null;
-
-  // Convertir a string
+  
   let priceStr = String(price).trim();
-
-  // Si ya es un número, validar que sea entero
+  
+  // Si ya es un número
   if (typeof price === 'number' && !isNaN(price)) {
-    // Verificar si el número tiene decimales (no permitido)
-    if (price % 1 !== 0) {
-      return null; // Rechazar decimales
-    }
     return price;
   }
-
-  // VERIFICAR SI CONTIENE COMAS O PUNTOS
-  // Si contiene comas o puntos, RECHAZAR
-  if (priceStr.includes(',') || priceStr.includes('.')) {
-    console.log(`❌ Precio rechazado por contener coma o punto: "${priceStr}"`);
-    return null; // Rechazar el precio
-  }
-
-  // Eliminar cualquier otro carácter no numérico
+  
+  // Transformar comas y puntos (formato colombiano)
+  // "5,483" -> "5483"
+  // "27,980" -> "27980"
+  priceStr = priceStr.replace(/[.,]/g, '');
+  
+  // Eliminar otros caracteres no numéricos
   priceStr = priceStr.replace(/[^0-9]/g, '');
-
-  // Verificar que no esté vacío
-  if (priceStr === '') {
-    return null;
-  }
-
+  
+  if (priceStr === '') return null;
+  
   const result = parseInt(priceStr, 10);
   return isNaN(result) ? null : result;
 }

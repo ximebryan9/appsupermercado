@@ -13,7 +13,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://*.vercel.app'],
   credentials: true
 }));
 app.use(express.json());
@@ -29,32 +29,43 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Función para limpiar precios (maneja 6,990 -> 6990)
-// Función para limpiar precios - VERSIÓN SIMPLE
-// Función para limpiar precios - RECHAZA comas y puntos
-// Función para limpiar precios - TRANSFORMA comas automáticamente
+// ==============================================
+// FUNCIÓN CORREGIDA PARA LIMPIAR PRECIOS
+// RECHAZA PRECIOS CON COMAS O PUNTOS
+// ==============================================
 function cleanPrice(price) {
   if (!price) return null;
   
   let priceStr = String(price).trim();
   
-  // Si ya es un número
+  // Si ya es un número, verificar que sea entero
   if (typeof price === 'number' && !isNaN(price)) {
-    return price;
+    return Math.round(price);
   }
   
-  // Transformar comas y puntos (formato colombiano)
-  // "5,483" -> "5483"
-  // "27,980" -> "27980"
-  priceStr = priceStr.replace(/[.,]/g, '');
+  // 🔴 RECHAZAR si contiene comas o puntos (formato incorrecto)
+  if (priceStr.includes(',') || priceStr.includes('.')) {
+    console.log(`❌ Precio RECHAZADO por contener coma o punto: "${priceStr}"`);
+    return null;
+  }
   
-  // Eliminar otros caracteres no numéricos
+  // Eliminar cualquier carácter no numérico
   priceStr = priceStr.replace(/[^0-9]/g, '');
   
-  if (priceStr === '') return null;
+  if (priceStr === '') {
+    console.log(`❌ Precio RECHAZADO: vacío`);
+    return null;
+  }
   
   const result = parseInt(priceStr, 10);
-  return isNaN(result) ? null : result;
+  
+  if (isNaN(result) || result <= 0) {
+    console.log(`❌ Precio RECHAZADO: ${priceStr} no es válido`);
+    return null;
+  }
+  
+  console.log(`✅ Precio ACEPTADO: ${result}`);
+  return result;
 }
 
 // Función para limpiar unidades
@@ -162,24 +173,15 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         continue;
       }
 
-      // Limpiar precio
-      let cleanPriceValue;
-      if (typeof price === 'number') {
-        cleanPriceValue = price;
-      } else {
-        let priceStr = String(price).trim();
-        priceStr = priceStr.replace(/\./g, '');
-        priceStr = priceStr.replace(/,/g, '.');
-        priceStr = priceStr.replace(/[^0-9.-]/g, '');
-        cleanPriceValue = parseFloat(priceStr);
+      // Limpiar precio usando la función mejorada
+      const cleanPriceValue = cleanPrice(price);
+      
+      if (cleanPriceValue === null || cleanPriceValue <= 0) {
+        errorCount++;
+        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". NO uses comas ni puntos. Ejemplo correcto: 5483 para $5,483`);
+        console.log(`❌ ERROR: Precio inválido para "${productName}"`);
+        continue;
       }
-
-     if (isNaN(cleanPriceValue) || cleanPriceValue <= 0) {
-  errorCount++;
-  errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". Recuerda: NO usar comas ni puntos. Ejemplo: 5483 para $5,483`);
-  console.log(`❌ ERROR: Precio inválido para "${productName}"`);
-  continue;
-}
 
       // Limpiar cantidad
       let quantityNum;
@@ -210,8 +212,9 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         // Empaque con equivalencia
         equivalentQty = equivQty ? parseFloat(equivQty) : quantityNum;
         equivalentUnit = equivUnit ? cleanUnit(equivUnit) : cleanUnitValue;
-        pricePerUnit = cleanPriceValue / (quantityNum * equivalentQty);
-        console.log(`📦 Empaque: ${quantityNum} ${cleanUnitValue} = ${quantityNum * equivalentQty} ${equivalentUnit}, precio por ${equivalentUnit}: $${pricePerUnit.toFixed(2)}`);
+        const totalBaseUnits = quantityNum * equivalentQty;
+        pricePerUnit = cleanPriceValue / totalBaseUnits;
+        console.log(`📦 Empaque: ${quantityNum} ${cleanUnitValue} = ${totalBaseUnits} ${equivalentUnit}, precio por ${equivalentUnit}: $${pricePerUnit.toFixed(2)}`);
       } else if (!isPackage) {
         // Unidad básica
         pricePerUnit = cleanPriceValue / quantityNum;
@@ -219,6 +222,11 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         // Empaque sin equivalencia
         pricePerUnit = null;
         console.log(`⚠️ Empaque sin equivalencia: ${productName.trim()}`);
+      }
+
+      // Redondear pricePerUnit a 2 decimales
+      if (pricePerUnit !== null) {
+        pricePerUnit = Math.round(pricePerUnit * 100) / 100;
       }
 
       try {
@@ -470,7 +478,6 @@ app.get('/api/download-template', (req, res) => {
       { 'Instrucciones': '• Si ves un error, verifica el formato de los precios' }
     ];
 
-
     const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
     instructionsSheet['!cols'] = [{ wch: 80 }];
 
@@ -712,5 +719,6 @@ app.listen(PORT, () => {
   console.log(`\n💾 Base de datos: Supabase PostgreSQL`);
   console.log(`📦 Enfoque Híbrido: Unidades básicas + Empaques especiales`);
   console.log(`🔄 Soporte para equivalencias (ej: 1 panal = 30 unidades)`);
-  console.log(`🗑️ Contraseña de limpieza: admin123\n`);
+  console.log(`🗑️ Contraseña de limpieza: admin123`);
+  console.log(`🔴 Validación: Precios con comas o puntos son RECHAZADOS\n`);
 });

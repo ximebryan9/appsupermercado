@@ -294,8 +294,6 @@ function App() {
                 <p>⚠️ <strong>¡IMPORTANTE para la columna PRECIO!</strong></p>
                 <p>❌ NO uses puntos ni comas en los precios</p>
                 <p>✅ Ejemplo correcto: <strong>5483</strong> (para $5,483)</p>
-                <p>✅ Ejemplo correcto: <strong>27980</strong> (para $27,980)</p>
-                <p>✅ Ejemplo correcto: <strong>1250</strong> (para $1,250)</p>
               </div>
               <div className="example">
                 <p>💡 Ejemplo de formato correcto:</p>

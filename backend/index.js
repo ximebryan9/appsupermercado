@@ -31,26 +31,46 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Función para limpiar precios (maneja 6,990 -> 6990)
 // Función para limpiar precios - VERSIÓN SIMPLE
+// Función para limpiar precios - RECHAZA comas y puntos
 function cleanPrice(price) {
   if (!price) return null;
-  
+
   // Convertir a string
   let priceStr = String(price).trim();
-  
-  // Eliminar TODOS los puntos y comas (separadores)
-  priceStr = priceStr.replace(/[.,]/g, '');
-  
+
+  // Si ya es un número, validar que sea entero
+  if (typeof price === 'number' && !isNaN(price)) {
+    // Verificar si el número tiene decimales (no permitido)
+    if (price % 1 !== 0) {
+      return null; // Rechazar decimales
+    }
+    return price;
+  }
+
+  // VERIFICAR SI CONTIENE COMAS O PUNTOS
+  // Si contiene comas o puntos, RECHAZAR
+  if (priceStr.includes(',') || priceStr.includes('.')) {
+    console.log(`❌ Precio rechazado por contener coma o punto: "${priceStr}"`);
+    return null; // Rechazar el precio
+  }
+
   // Eliminar cualquier otro carácter no numérico
   priceStr = priceStr.replace(/[^0-9]/g, '');
-  
-  const result = parseFloat(priceStr);
+
+  // Verificar que no esté vacío
+  if (priceStr === '') {
+    return null;
+  }
+
+  const result = parseInt(priceStr, 10);
   return isNaN(result) ? null : result;
 }
+
 // Función para limpiar unidades
 function cleanUnit(unit) {
   if (!unit) return 'unidad';
   let unitStr = String(unit).trim().toLowerCase();
-  
+
   const unitMap = {
     'kg': 'kg', 'kilo': 'kg', 'kkl': 'kg', 'kl': 'kg',
     'gramo': 'g', 'gramos': 'g', 'g': 'g',
@@ -62,13 +82,13 @@ function cleanUnit(unit) {
     'carton': 'cartón', 'cartón': 'cartón',
     'bolsa': 'bolsa', 'funda': 'funda'
   };
-  
+
   const match = unitStr.match(/(kg|kilo|kl?|g|lb|litro|l|unidad|ban|bandeja|pan|panal|panel|carton|bolsa|funda)/i);
   if (match) {
     const key = match[1].toLowerCase();
     return unitMap[key] || key;
   }
-  
+
   return unitStr;
 }
 
@@ -78,18 +98,18 @@ app.get('/api/health', async (req, res) => {
     const { data, error } = await supabase
       .from('products')
       .select('count', { count: 'exact', head: true });
-    
+
     if (error) throw error;
-    
-    res.json({ 
-      status: 'OK', 
+
+    res.json({
+      status: 'OK',
       database: 'Supabase conectado',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    res.status(500).json({ 
-      status: 'ERROR', 
-      error: error.message 
+    res.status(500).json({
+      status: 'ERROR',
+      error: error.message
     });
   }
 });
@@ -99,58 +119,58 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
   try {
     const file = req.file;
     let { monthDate } = req.body;
-    
+
     // Convertir "2026-05" a "2026-05-01"
     if (monthDate && monthDate.length === 7 && /^\d{4}-\d{2}$/.test(monthDate)) {
       monthDate = `${monthDate}-01`;
       console.log(`📅 Fecha convertida: ${monthDate}`);
     }
-    
+
     if (!file || !monthDate) {
       return res.status(400).json({ error: 'Faltan archivo o fecha' });
     }
-    
+
     console.log(`📥 Procesando: ${file.originalname} para ${monthDate}`);
-    
+
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(worksheet);
-    
+
     console.log(`📊 Filas encontradas: ${data.length}`);
-    
+
     if (data.length === 0) {
       return res.status(400).json({ error: 'El archivo Excel está vacío' });
     }
-    
+
     let successCount = 0;
     let errorCount = 0;
     const errors = [];
     const successItems = [];
-    
+
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
-      
+
       const productName = row['Producto'] || row['producto'];
       const quantity = row['Cantidad'] || row['cantidad'];
       const unit = row['Unidad'] || row['unidad'];
       const price = row['Precio'] || row['precio'];
-      
+
       // Leer equivalencias (opcionales)
       const equivQty = row['Equivalencia_Cantidad'] || row['equiv_cantidad'] || row['Equivalencia'] || null;
       const equivUnit = row['Equivalencia_Unidad'] || row['equiv_unidad'] || null;
-      
+
       if (!productName) {
         errorCount++;
         errors.push(`Fila ${i + 2}: No se encontró nombre del producto`);
         continue;
       }
-      
+
       if (!price) {
         errorCount++;
         errors.push(`Fila ${i + 2}: No se encontró precio para "${productName}"`);
         continue;
       }
-      
+
       // Limpiar precio
       let cleanPriceValue;
       if (typeof price === 'number') {
@@ -162,13 +182,14 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         priceStr = priceStr.replace(/[^0-9.-]/g, '');
         cleanPriceValue = parseFloat(priceStr);
       }
-      
-      if (isNaN(cleanPriceValue) || cleanPriceValue <= 0) {
-        errorCount++;
-        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}"`);
-        continue;
-      }
-      
+
+     if (isNaN(cleanPriceValue) || cleanPriceValue <= 0) {
+  errorCount++;
+  errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". Recuerda: NO usar comas ni puntos. Ejemplo: 5483 para $5,483`);
+  console.log(`❌ ERROR: Precio inválido para "${productName}"`);
+  continue;
+}
+
       // Limpiar cantidad
       let quantityNum;
       if (typeof quantity === 'number') {
@@ -176,24 +197,24 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
       } else {
         quantityNum = parseFloat(String(quantity).replace(',', '.').replace(/[^0-9.-]/g, ''));
       }
-      
+
       if (isNaN(quantityNum) || quantityNum <= 0) {
         quantityNum = 1;
       }
-      
+
       // Limpiar unidad
       let cleanUnitValue = unit ? String(unit).trim().toLowerCase() : 'unidad';
       cleanUnitValue = cleanUnit(cleanUnitValue);
-      
+
       // Determinar si es empaque o unidad básica
       const basicUnits = ['kg', 'g', 'lb', 'litro', 'ml', 'unidad'];
       const isPackage = !basicUnits.includes(cleanUnitValue);
-      
+
       // Procesar equivalencias
       let equivalentQty = null;
       let equivalentUnit = null;
       let pricePerUnit = null;
-      
+
       if (isPackage && (equivQty || equivUnit)) {
         // Empaque con equivalencia
         equivalentQty = equivQty ? parseFloat(equivQty) : quantityNum;
@@ -208,7 +229,7 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         pricePerUnit = null;
         console.log(`⚠️ Empaque sin equivalencia: ${productName.trim()}`);
       }
-      
+
       try {
         // Buscar producto
         let { data: existingProduct } = await supabase
@@ -216,13 +237,13 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
           .select('id')
           .ilike('name', productName.trim())
           .maybeSingle();
-        
+
         let productId;
-        
+
         if (!existingProduct) {
           const { data: newProduct, error: insertError } = await supabase
             .from('products')
-            .insert({ 
+            .insert({
               name: productName.trim(),
               default_quantity: quantityNum,
               default_unit: cleanUnitValue,
@@ -230,7 +251,7 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
             })
             .select()
             .single();
-          
+
           if (insertError) throw insertError;
           productId = newProduct.id;
           console.log(`✅ Nuevo producto: ${productName.trim()}`);
@@ -238,7 +259,7 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
           productId = existingProduct.id;
           console.log(`✅ Producto existente: ${productName.trim()}`);
         }
-        
+
         // Verificar si ya existe un registro para este producto y mes
         const { data: existingPrice } = await supabase
           .from('price_history')
@@ -246,9 +267,9 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
           .eq('product_id', productId)
           .eq('month_date', monthDate)
           .maybeSingle();
-        
+
         let priceError;
-        
+
         if (existingPrice) {
           // Actualizar precio existente
           const { error } = await supabase
@@ -283,23 +304,23 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
           priceError = error;
           console.log(`✨ Insertado: ${productName.trim()} para ${monthDate}`);
         }
-        
+
         if (priceError) throw priceError;
-        
+
         successCount++;
         successItems.push(productName.trim());
-        
+
       } catch (error) {
         errorCount++;
         errors.push(`Fila ${i + 2} (${productName}): ${error.message}`);
         console.error(`❌ Error:`, error.message);
       }
     }
-    
+
     console.log(`\n📊 ========== RESUMEN FINAL ==========`);
     console.log(`✅ Exitosos: ${successCount}`);
     console.log(`❌ Errores: ${errorCount}`);
-    
+
     res.json({
       success: successCount > 0,
       message: 'Archivo procesado',
@@ -308,7 +329,7 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
       erroresDetalle: errors.slice(0, 10),
       productosProcesados: successItems
     });
-    
+
   } catch (error) {
     console.error('❌ Error general:', error);
     res.status(500).json({ error: error.message });
@@ -319,30 +340,30 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
 app.get('/api/search', async (req, res) => {
   try {
     const { query } = req.query;
-    
+
     if (!query) return res.json([]);
-    
+
     const { data: products } = await supabase
       .from('products')
       .select('*')
       .ilike('name', `%${query}%`)
       .limit(20);
-    
+
     if (!products || products.length === 0) {
       return res.json([]);
     }
-    
+
     const productIds = products.map(p => p.id);
-    
+
     const { data: prices } = await supabase
       .from('price_history')
       .select('*')
       .in('product_id', productIds)
       .order('month_date', { ascending: false });
-    
+
     const results = products.map(product => {
       const productPrices = prices.filter(p => p.product_id === product.id);
-      
+
       return {
         id: product.id,
         name: product.name,
@@ -353,7 +374,7 @@ app.get('/api/search', async (req, res) => {
           let displayText = `${p.quantity} ${p.unit} por $${p.price}`;
           let priceDisplay = '';
           let equivalentInfo = null;
-          
+
           if (p.is_package && p.equivalent_quantity && p.equivalent_unit) {
             equivalentInfo = {
               quantity: p.equivalent_quantity,
@@ -367,7 +388,7 @@ app.get('/api/search', async (req, res) => {
           } else {
             priceDisplay = `$${p.price}/${p.unit}`;
           }
-          
+
           return {
             date: p.month_date,
             price: p.price,
@@ -384,9 +405,9 @@ app.get('/api/search', async (req, res) => {
         })
       };
     });
-    
+
     res.json(results);
-    
+
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: error.message });
@@ -403,12 +424,12 @@ app.get('/api/download-template', (req, res) => {
       { 'Producto': 'Ejemplo: Panal de Huevos', 'Cantidad': 1, 'Unidad': 'panal', 'Precio': 12000, 'Equivalencia_Cantidad': 30, 'Equivalencia_Unidad': 'unidades' },
       { 'Producto': 'Ejemplo: Ciruelas (bandeja)', 'Cantidad': 1, 'Unidad': 'bandeja', 'Precio': 5000, 'Equivalencia_Cantidad': 500, 'Equivalencia_Unidad': 'gramos' }
     ];
-    
+
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.json_to_sheet(templateData);
     worksheet['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
-    
-     const instructionsData = [
+
+    const instructionsData = [
       { 'Instrucciones': '📋 GUÍA RÁPIDA PARA LLENAR LA PLANTILLA' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '1️⃣ COLUMNA PRODUCTO:' },
@@ -457,20 +478,20 @@ app.get('/api/download-template', (req, res) => {
       { 'Instrucciones': '• Revisa que los precios no tengan comas ni puntos' },
       { 'Instrucciones': '• Si ves un error, verifica el formato de los precios' }
     ];
-    
-    
+
+
     const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
     instructionsSheet['!cols'] = [{ wch: 80 }];
-    
+
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Plantilla');
     XLSX.utils.book_append_sheet(workbook, instructionsSheet, 'Instrucciones');
-    
+
     const excelBuffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-    
+
     res.setHeader('Content-Disposition', 'attachment; filename=plantilla_precios_supermercado.xlsx');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(excelBuffer);
-    
+
   } catch (error) {
     console.error('Error generando plantilla:', error);
     res.status(500).json({ error: 'Error generando plantilla' });
@@ -482,22 +503,22 @@ app.get('/api/compare/:productId', async (req, res) => {
   try {
     const { productId } = req.params;
     const { month1, month2 } = req.query;
-    
+
     const { data: product } = await supabase
       .from('products')
       .select('name, default_quantity, default_unit, unit_type')
       .eq('id', productId)
       .single();
-    
+
     const { data: prices } = await supabase
       .from('price_history')
       .select('*')
       .eq('product_id', productId)
       .in('month_date', [month1, month2]);
-    
+
     const price1 = prices.find(p => p.month_date === month1);
     const price2 = prices.find(p => p.month_date === month2);
-    
+
     const getBasePrice = (priceData) => {
       if (!priceData) return null;
       if (priceData.is_package && priceData.equivalent_quantity && priceData.equivalent_unit) {
@@ -508,7 +529,7 @@ app.get('/api/compare/:productId', async (req, res) => {
       }
       return null;
     };
-    
+
     const getBaseUnit = (priceData) => {
       if (!priceData) return 'unidad';
       if (priceData.is_package && priceData.equivalent_unit) {
@@ -516,7 +537,7 @@ app.get('/api/compare/:productId', async (req, res) => {
       }
       return priceData.unit || 'unidad';
     };
-    
+
     const getDisplayText = (priceData) => {
       if (!priceData) return 'No disponible';
       if (priceData.is_package && priceData.equivalent_quantity && priceData.equivalent_unit) {
@@ -525,14 +546,14 @@ app.get('/api/compare/:productId', async (req, res) => {
       }
       return `${priceData.quantity} ${priceData.unit} por $${priceData.price}`;
     };
-    
+
     const basePrice1 = getBasePrice(price1);
     const basePrice2 = getBasePrice(price2);
     const baseUnit = getBaseUnit(price1) || getBaseUnit(price2) || 'unidad';
-    
+
     const difference = (basePrice1 && basePrice2) ? (basePrice2 - basePrice1) : null;
     const percentageChange = (basePrice1 && basePrice2) ? ((basePrice2 - basePrice1) / basePrice1 * 100) : null;
-    
+
     res.json({
       productName: product.name,
       productType: product.unit_type,
@@ -566,7 +587,7 @@ app.get('/api/compare/:productId', async (req, res) => {
       priceIncreased: difference > 0,
       priceDecreased: difference < 0
     });
-    
+
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: error.message });
@@ -580,10 +601,10 @@ app.get('/api/months', async (req, res) => {
       .from('price_history')
       .select('month_date')
       .order('month_date', { ascending: false });
-    
+
     const months = [...new Set(data.map(m => m.month_date))];
     res.json(months);
-    
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -595,24 +616,24 @@ app.get('/api/stats', async (req, res) => {
     const { count: productCount } = await supabase
       .from('products')
       .select('count', { count: 'exact', head: true });
-    
+
     const { count: priceCount } = await supabase
       .from('price_history')
       .select('count', { count: 'exact', head: true });
-    
+
     const { data: months } = await supabase
       .from('price_history')
       .select('month_date');
-    
+
     const uniqueMonths = [...new Set(months?.map(m => m.month_date) || [])];
-    
+
     const { data: units } = await supabase
       .from('price_history')
       .select('unit')
       .not('unit', 'is', null);
-    
+
     const uniqueUnits = [...new Set(units?.map(u => u.unit) || [])];
-    
+
     res.json({
       totalProducts: productCount || 0,
       totalPriceRecords: priceCount || 0,
@@ -620,7 +641,7 @@ app.get('/api/stats', async (req, res) => {
       months: uniqueMonths.sort().reverse(),
       units: uniqueUnits
     });
-    
+
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -635,18 +656,18 @@ app.delete('/api/clear-all-data', async (req, res) => {
   try {
     const { password } = req.body;
     const ADMIN_PASSWORD = 'admin123';
-    
+
     if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
-    
+
     console.log('⚠️ Iniciando limpieza total de datos...');
-    
+
     await supabase.from('price_history').delete().neq('id', 0);
     await supabase.from('products').delete().neq('id', 0);
-    
+
     console.log('✅ Todos los datos han sido eliminados correctamente');
-    
+
     res.json({ success: true, message: 'Todos los datos han sido eliminados' });
   } catch (error) {
     console.error('❌ Error limpiando datos:', error);
@@ -659,21 +680,21 @@ app.delete('/api/clear-month-data', async (req, res) => {
   try {
     const { monthDate, password } = req.body;
     const ADMIN_PASSWORD = 'admin123';
-    
+
     if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
-    
+
     if (!monthDate) {
       return res.status(400).json({ error: 'Debes especificar el mes a limpiar' });
     }
-    
+
     console.log(`⚠️ Eliminando datos del mes: ${monthDate}`);
-    
+
     await supabase.from('price_history').delete().eq('month_date', monthDate);
-    
+
     console.log(`✅ Datos del mes ${monthDate} eliminados correctamente`);
-    
+
     res.json({ success: true, message: `Datos del mes ${monthDate} eliminados` });
   } catch (error) {
     console.error('❌ Error:', error);

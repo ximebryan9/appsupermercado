@@ -30,26 +30,23 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==============================================
-// FUNCIÓN CORREGIDA PARA LIMPIAR PRECIOS
-// RECHAZA PRECIOS CON COMAS O PUNTOS
+// FUNCIÓN PARA LIMPIAR PRECIOS - OPCIÓN B (TRANSFORMA AUTOMÁTICAMENTE)
+// "5,483" -> "5483" | "27,980" -> "27980"
 // ==============================================
 function cleanPrice(price) {
   if (!price) return null;
   
   let priceStr = String(price).trim();
   
-  // Si ya es un número, verificar que sea entero
+  // Si ya es un número
   if (typeof price === 'number' && !isNaN(price)) {
     return Math.round(price);
   }
   
-  // 🔴 RECHAZAR si contiene comas o puntos (formato incorrecto)
-  if (priceStr.includes(',') || priceStr.includes('.')) {
-    console.log(`❌ Precio RECHAZADO por contener coma o punto: "${priceStr}"`);
-    return null;
-  }
-  
-  // Eliminar cualquier carácter no numérico
+  // ✅ TRANSFORMAR: eliminar comas y puntos (formato colombiano)
+  // "5,483" -> "5483"
+  // "27,980" -> "27980"
+  priceStr = priceStr.replace(/[.,]/g, '');
   priceStr = priceStr.replace(/[^0-9]/g, '');
   
   if (priceStr === '') {
@@ -64,7 +61,7 @@ function cleanPrice(price) {
     return null;
   }
   
-  console.log(`✅ Precio ACEPTADO: ${result}`);
+  console.log(`✅ Precio transformado: "${priceStr}" -> ${result}`);
   return result;
 }
 
@@ -173,17 +170,17 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         continue;
       }
 
-      // Limpiar precio usando la función mejorada
+      // Limpiar precio usando la función que transforma automáticamente
       const cleanPriceValue = cleanPrice(price);
       
       if (cleanPriceValue === null || cleanPriceValue <= 0) {
         errorCount++;
-        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". NO uses comas ni puntos. Ejemplo correcto: 5483 para $5,483`);
+        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". Asegúrate de que sea un número positivo. Ejemplo: 5483 para $5,483`);
         console.log(`❌ ERROR: Precio inválido para "${productName}"`);
         continue;
       }
 
-      // Limpiar cantidad
+      // Limpiar cantidad (mantiene decimales para kg, litros, etc.)
       let quantityNum;
       if (typeof quantity === 'number') {
         quantityNum = quantity;
@@ -452,19 +449,14 @@ app.get('/api/download-template', (req, res) => {
       { 'Instrucciones': '   • caja' },
       { 'Instrucciones': '   • bolsa' },
       { 'Instrucciones': '' },
-      { 'Instrucciones': '4️⃣ COLUMNA PRECIO ⚠️ IMPORTANTE ⚠️:' },
-      { 'Instrucciones': '   🔴 NO uses puntos, NO uses comas' },
-      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 5483 (para cinco mil cuatrocientos ochenta y tres)' },
-      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 5,483 o 5.483' },
-      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 27980 (para veintisiete mil novecientos ochenta)' },
-      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 27,980 o 27.980' },
-      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 1250 (para mil doscientos cincuenta)' },
-      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 1.250 o 1,250' },
+      { 'Instrucciones': '4️⃣ COLUMNA PRECIO:' },
+      { 'Instrucciones': '   ✅ Puedes usar números con o sin comas (el sistema los transforma automáticamente)' },
+      { 'Instrucciones': '   • Ejemplo: 5483 o 5,483 funciona igual' },
+      { 'Instrucciones': '   • Ejemplo: 27980 o 27,980 funciona igual' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '📌 EJEMPLOS PRÁCTICOS:' },
-      { 'Instrucciones': '   • Si pagaste $5,483 → Escribe: 5483' },
-      { 'Instrucciones': '   • Si pagaste $27,980 → Escribe: 27980' },
-      { 'Instrucciones': '   • Si pagaste $1,200 → Escribe: 1200' },
+      { 'Instrucciones': '   • Si pagaste $5,483 → Funciona igual que 5483' },
+      { 'Instrucciones': '   • Si pagaste $27,980 → Funciona igual que 27980' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '5️⃣ COLUMNAS DE EQUIVALENCIA (opcional, solo para empaques):' },
       { 'Instrucciones': '   • Equivalencia_Cantidad: ¿Cuántas unidades base tiene el empaque?' },
@@ -472,10 +464,9 @@ app.get('/api/download-template', (req, res) => {
       { 'Instrucciones': '   • Ejemplo: 1 panal = 30 unidades → Cantidad:30, Unidad:unidades' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '💡 CONSEJOS IMPORTANTES:' },
-      { 'Instrucciones': '🔥 LOS PRECIOS DEBEN SER SÓLO NÚMEROS, SIN PUNTOS NI COMAS 🔥' },
+      { 'Instrucciones': '• El sistema acepta precios con o sin comas (las transforma automáticamente)' },
       { 'Instrucciones': '• Borra las filas de ejemplo antes de subir tu archivo' },
-      { 'Instrucciones': '• Revisa que los precios no tengan comas ni puntos' },
-      { 'Instrucciones': '• Si ves un error, verifica el formato de los precios' }
+      { 'Instrucciones': '• La cantidad debe usar punto para decimales: 1.5 kg (no 1,5)' }
     ];
 
     const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
@@ -720,5 +711,5 @@ app.listen(PORT, () => {
   console.log(`📦 Enfoque Híbrido: Unidades básicas + Empaques especiales`);
   console.log(`🔄 Soporte para equivalencias (ej: 1 panal = 30 unidades)`);
   console.log(`🗑️ Contraseña de limpieza: admin123`);
-  console.log(`🔴 Validación: Precios con comas o puntos son RECHAZADOS\n`);
+  console.log(`💰 Precios: Transformación automática de comas y puntos (5,483 → 5483)\n`);
 });

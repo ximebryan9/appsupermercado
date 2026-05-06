@@ -64,33 +64,33 @@ function App() {
 
   const handleUpload = async (e) => {
     e.preventDefault()
-    
+
     if (!file || !monthDate) {
       setMessage('❌ Selecciona un archivo y una fecha')
       return
     }
-    
+
     setUploading(true)
     const formData = new FormData()
     formData.append('file', file)
     const fullDate = `${monthDate}-01`
     formData.append('monthDate', fullDate)
-    
+
     try {
       const response = await axios.post('/api/upload-excel', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
-      
+
       setMessage(`✅ ${response.data.message} - Nuevos: ${response.data.nuevos}, Errores: ${response.data.errores}`)
-      
+
       setFile(null)
       setMonthDate('')
       const fileInput = document.getElementById('excel-file')
       if (fileInput) fileInput.value = ''
-      
+
       fetchMonths()
       fetchStats()
-      
+
     } catch (error) {
       setMessage('❌ Error al subir el archivo: ' + (error.response?.data?.error || error.message))
     } finally {
@@ -104,12 +104,12 @@ function App() {
       alert('❌ Ingresa la contraseña de administrador')
       return
     }
-    
+
     if (clearType === 'month' && !clearMonth) {
       alert('❌ Selecciona un mes para eliminar')
       return
     }
-    
+
     setShowClearModal(false)
     setShowConfirmModal(true)
   }
@@ -121,7 +121,7 @@ function App() {
       const response = await axios.delete('/api/clear-all-data', {
         data: { password: clearPassword }
       })
-      
+
       if (response.data.success) {
         alert('✅ Todos los datos han sido eliminados correctamente')
         setShowConfirmModal(false)
@@ -144,12 +144,12 @@ function App() {
     setClearing(true)
     try {
       const response = await axios.delete('/api/clear-month-data', {
-        data: { 
+        data: {
           monthDate: clearMonth,
           password: clearPassword
         }
       })
-      
+
       if (response.data.success) {
         alert(`✅ Datos del mes ${clearMonth} eliminados correctamente`)
         setShowConfirmModal(false)
@@ -173,11 +173,11 @@ function App() {
       alert('Ingresa un producto para buscar')
       return
     }
-    
+
     try {
       const response = await axios.get(`/api/search?query=${searchTerm}`)
       setSearchResults(response.data)
-      
+
       if (response.data.length === 0) {
         alert('No se encontraron productos')
       }
@@ -192,7 +192,7 @@ function App() {
       alert('Selecciona un producto y dos meses')
       return
     }
-    
+
     try {
       const response = await axios.get(`/api/compare/${selectedProduct.id}?month1=${month1}&month2=${month2}`)
       setComparison(response.data)
@@ -215,8 +215,8 @@ function App() {
               <span className="status-badge disconnected">❌ Backend no disponible</span>
             )}
           </div>
-          <button 
-            onClick={() => setShowClearModal(true)} 
+          <button
+            onClick={() => setShowClearModal(true)}
             className="clear-data-btn"
           >
             🗑️ Limpiar Datos
@@ -231,31 +231,31 @@ function App() {
       </header>
 
       <div className="tabs">
-        <button 
-          className={activeTab === 'upload' ? 'active' : ''} 
+        <button
+          className={activeTab === 'upload' ? 'active' : ''}
           onClick={() => setActiveTab('upload')}
         >
           📤 Subir Excel
         </button>
-        <button 
-          className={activeTab === 'search' ? 'active' : ''} 
+        <button
+          className={activeTab === 'search' ? 'active' : ''}
           onClick={() => setActiveTab('search')}
         >
           🔍 Buscar Producto
         </button>
-        <button 
-          className={activeTab === 'compare' ? 'active' : ''} 
+        <button
+          className={activeTab === 'compare' ? 'active' : ''}
           onClick={() => setActiveTab('compare')}
         >
           📈 Comparar Precios
         </button>
       </div>
-      
+
       <div className="content">
         {activeTab === 'upload' && (
           <div className="upload-section">
             <div className="template-download">
-              <button 
+              <button
                 onClick={async () => {
                   try {
                     const response = await fetch('/api/download-template');
@@ -279,7 +279,7 @@ function App() {
               </button>
             </div>
             <h2>📤 Subir Excel de Precios</h2>
-            
+
             <div className="info-box">
               <p>📋 El Excel debe tener las siguientes columnas:</p>
               <ul>
@@ -290,6 +290,13 @@ function App() {
                 <li><strong>Equivalencia_Cantidad</strong> (opcional) - Para empaques: ¿cuántas unidades base tiene?</li>
                 <li><strong>Equivalencia_Unidad</strong> (opcional) - Unidad base del empaque</li>
               </ul>
+              <div className="warning-box">
+                <p>⚠️ <strong>¡IMPORTANTE para la columna PRECIO!</strong></p>
+                <p>❌ NO uses puntos ni comas en los precios</p>
+                <p>✅ Ejemplo correcto: <strong>5483</strong> (para $5,483)</p>
+                <p>✅ Ejemplo correcto: <strong>27980</strong> (para $27,980)</p>
+                <p>✅ Ejemplo correcto: <strong>1250</strong> (para $1,250)</p>
+              </div>
               <div className="example">
                 <p>💡 Ejemplo de formato correcto:</p>
                 <table className="example-table">
@@ -341,101 +348,101 @@ function App() {
                 <p className="note">✨ El sistema calculará automáticamente el precio por unidad base para comparaciones justas</p>
               </div>
             </div>
-            
-           <form onSubmit={handleUpload}>
-  <div className="form-row">
-    {/* Columna 1: Selector de Mes */}
-    <div className="form-col">
-      <div className="form-group month-selector-group">
-        <label>📅 Selecciona el mes de compra</label>
-        <div className="month-input-wrapper">
-          <div className="calendar-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-              <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth="1.5"/>
-              <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" strokeWidth="1.5"/>
-              <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" strokeWidth="1.5"/>
-              <circle cx="12" cy="13" r="1" fill="currentColor"/>
-              <circle cx="16" cy="13" r="1" fill="currentColor"/>
-              <circle cx="8" cy="13" r="1" fill="currentColor"/>
-              <circle cx="12" cy="17" r="1" fill="currentColor"/>
-              <circle cx="16" cy="17" r="1" fill="currentColor"/>
-              <circle cx="8" cy="17" r="1" fill="currentColor"/>
-            </svg>
-          </div>
-          <input
-            type="month"
-            value={monthDate}
-            onChange={(e) => setMonthDate(e.target.value)}
-            required
-            className="month-input"
-            placeholder="Selecciona un mes"
-          />
-        </div>
-        <div className="month-hint">
-          <span className="hint-icon">📅</span>
-          <span>Mes de la compra</span>
-        </div>
-      </div>
-    </div>
 
-    {/* Columna 2: Selector de Archivo */}
-    <div className="form-col">
-      <div className="form-group file-group">
-        <label>📁 Archivo Excel</label>
-        <div className="file-input-wrapper">
-          <div className="file-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M13 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V9L13 2Z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-              <path d="M13 2V9H20" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-              <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.5"/>
-              <line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" strokeWidth="1.5"/>
-              <line x1="8" y1="9" x2="10" y2="9" stroke="currentColor" strokeWidth="1.5"/>
-            </svg>
-          </div>
-          <input
-            id="excel-file"
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={(e) => setFile(e.target.files[0])}
-            required
-            className="file-input"
-          />
-          <span className="file-name" id="file-name">
-            {file ? file.name : 'Ningún archivo seleccionado'}
-          </span>
-        </div>
-        <div className="file-hint">
-          <span className="hint-icon">📊</span>
-          <span>Formatos: .xlsx, .xls</span>
-        </div>
-      </div>
-    </div>
-  </div>
+            <form onSubmit={handleUpload}>
+              <div className="form-row">
+                {/* Columna 1: Selector de Mes */}
+                <div className="form-col">
+                  <div className="form-group month-selector-group">
+                    <label>📅 Selecciona el mes de compra</label>
+                    <div className="month-input-wrapper">
+                      <div className="calendar-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                          <line x1="8" y1="2" x2="8" y2="6" stroke="currentColor" strokeWidth="1.5" />
+                          <line x1="16" y1="2" x2="16" y2="6" stroke="currentColor" strokeWidth="1.5" />
+                          <line x1="3" y1="9" x2="21" y2="9" stroke="currentColor" strokeWidth="1.5" />
+                          <circle cx="12" cy="13" r="1" fill="currentColor" />
+                          <circle cx="16" cy="13" r="1" fill="currentColor" />
+                          <circle cx="8" cy="13" r="1" fill="currentColor" />
+                          <circle cx="12" cy="17" r="1" fill="currentColor" />
+                          <circle cx="16" cy="17" r="1" fill="currentColor" />
+                          <circle cx="8" cy="17" r="1" fill="currentColor" />
+                        </svg>
+                      </div>
+                      <input
+                        type="month"
+                        value={monthDate}
+                        onChange={(e) => setMonthDate(e.target.value)}
+                        required
+                        className="month-input"
+                        placeholder="Selecciona un mes"
+                      />
+                    </div>
+                    <div className="month-hint">
+                      <span className="hint-icon">📅</span>
+                      <span>Mes de la compra</span>
+                    </div>
+                  </div>
+                </div>
 
-  {/* Botón de subida - ancho completo */}
-  <button type="submit" disabled={uploading} className="upload-btn">
-    {uploading ? (
-      <>
-        <span className="spinner"></span>
-        Subiendo...
-      </>
-    ) : (
-      <>
-        🚀 Subir Excel
-      </>
-    )}
-  </button>
-</form>
-            
+                {/* Columna 2: Selector de Archivo */}
+                <div className="form-col">
+                  <div className="form-group file-group">
+                    <label>📁 Archivo Excel</label>
+                    <div className="file-input-wrapper">
+                      <div className="file-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M13 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V9L13 2Z" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                          <path d="M13 2V9H20" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                          <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1.5" />
+                          <line x1="8" y1="17" x2="16" y2="17" stroke="currentColor" strokeWidth="1.5" />
+                          <line x1="8" y1="9" x2="10" y2="9" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                      </div>
+                      <input
+                        id="excel-file"
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={(e) => setFile(e.target.files[0])}
+                        required
+                        className="file-input"
+                      />
+                      <span className="file-name" id="file-name">
+                        {file ? file.name : 'Ningún archivo seleccionado'}
+                      </span>
+                    </div>
+                    <div className="file-hint">
+                      <span className="hint-icon">📊</span>
+                      <span>Formatos: .xlsx, .xls</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botón de subida - ancho completo */}
+              <button type="submit" disabled={uploading} className="upload-btn">
+                {uploading ? (
+                  <>
+                    <span className="spinner"></span>
+                    Subiendo...
+                  </>
+                ) : (
+                  <>
+                    🚀 Subir Excel
+                  </>
+                )}
+              </button>
+            </form>
+
             {message && <div className="message">{message}</div>}
           </div>
         )}
-        
+
         {activeTab === 'search' && (
           <div className="search-section">
             <h2>🔍 Buscar Productos</h2>
-            
+
             <div className="search-box">
               <input
                 type="text"
@@ -446,13 +453,13 @@ function App() {
               />
               <button onClick={handleSearch}>Buscar</button>
             </div>
-            
+
             {searchResults.length > 0 && (
               <div className="results-list">
                 <h3>Resultados encontrados ({searchResults.length})</h3>
                 {searchResults.map(product => (
-                  <div 
-                    key={product.id} 
+                  <div
+                    key={product.id}
                     className="product-card"
                     onClick={() => setSelectedProduct(product)}
                   >
@@ -468,14 +475,14 @@ function App() {
                 ))}
               </div>
             )}
-            
+
             {selectedProduct && (
               <div className="modal-overlay" onClick={() => setSelectedProduct(null)}>
                 <div className="modal-content" onClick={(e) => e.stopPropagation()}>
                   <button className="close-btn" onClick={() => setSelectedProduct(null)}>✖ Cerrar</button>
                   <h2>{selectedProduct.name}</h2>
                   <p className="default-info">📦 Cantidad típica: {selectedProduct.defaultQuantity} {selectedProduct.defaultUnit}</p>
-                  
+
                   <div className="price-history-list">
                     <h3>Historial de Precios</h3>
                     <table>
@@ -494,10 +501,10 @@ function App() {
                           .map((item, idx) => {
                             const hasEquivalencia = item.equivalentQuantity && item.equivalentUnit;
                             const hasPricePerUnit = item.pricePerUnit !== null && item.pricePerUnit !== undefined && !isNaN(item.pricePerUnit);
-                            
+
                             let precioUnidadTexto = '';
                             let significadoTexto = '';
-                            
+
                             if (hasEquivalencia) {
                               precioUnidadTexto = `$${item.pricePerUnit.toFixed(2)}/${item.equivalentUnit}`;
                               significadoTexto = `1 ${item.equivalentUnit} = $${item.pricePerUnit.toFixed(2)}`;
@@ -508,7 +515,7 @@ function App() {
                               precioUnidadTexto = `$${item.price}/${item.unit}`;
                               significadoTexto = `1 ${item.unit} = $${item.price}`;
                             }
-                            
+
                             return (
                               <tr key={idx}>
                                 <td>{item.date}</td>
@@ -526,7 +533,7 @@ function App() {
                           })}
                       </tbody>
                     </table>
-                    
+
                     <div className="info-note">
                       <p>💡 <strong>Entendiendo los precios:</strong></p>
                       <ul>
@@ -541,12 +548,12 @@ function App() {
             )}
           </div>
         )}
-        
+
         {activeTab === 'compare' && (
           <div className="compare-section">
             <h2>📊 Comparar Precios (Normalizado por Unidad)</h2>
             <p className="info-text">✨ La comparación se hace automáticamente por unidad de medida (1 lb, 1 kg, 1 unidad) para que sea justa aunque compres diferentes cantidades</p>
-            
+
             <div className="search-product">
               <input
                 type="text"
@@ -556,7 +563,7 @@ function App() {
               />
               <button onClick={handleSearch}>Buscar Producto</button>
             </div>
-            
+
             {searchResults.length > 0 && (
               <div className="product-select">
                 <label>Selecciona un producto:</label>
@@ -574,14 +581,14 @@ function App() {
                 </select>
               </div>
             )}
-            
+
             {selectedProduct && (
               <>
                 <div className="selected-product">
                   <p><strong>Producto:</strong> {selectedProduct.name}</p>
                   <p><strong>Cantidad típica:</strong> {selectedProduct.defaultQuantity} {selectedProduct.defaultUnit}</p>
                 </div>
-                
+
                 <div className="month-selectors">
                   <div>
                     <label>Mes anterior:</label>
@@ -592,7 +599,7 @@ function App() {
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
                     <label>Mes actual:</label>
                     <select value={month2} onChange={(e) => setMonth2(e.target.value)}>
@@ -603,15 +610,15 @@ function App() {
                     </select>
                   </div>
                 </div>
-                
+
                 <button onClick={handleCompare} className="compare-btn">Comparar Precios</button>
               </>
             )}
-            
+
             {comparison && (
               <div className="comparison-results">
                 <h3>Resultados: {comparison.productName}</h3>
-                
+
                 <div className="price-cards">
                   <div className="price-card">
                     <h4>📆 {comparison.month1.date || 'Mes 1'}</h4>
@@ -620,7 +627,7 @@ function App() {
                         <span className="label">💰 Total pagado:</span>
                         <span className="value">{comparison.month1.displayText || 'No disponible'}</span>
                       </div>
-                      
+
                       {comparison.month1.basePrice && (
                         <div className="unit-price highlight">
                           <span className="label">✨ Precio por {comparison.baseUnit}:</span>
@@ -628,14 +635,14 @@ function App() {
                           <span className="unit-label">por {comparison.baseUnit}</span>
                         </div>
                       )}
-                      
+
                       <div className="quantity-info">
                         <span className="label">📦 Cantidad comprada:</span>
                         <span className="value">{comparison.month1.quantity} {comparison.month1.unit}</span>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="price-card">
                     <h4>📆 {comparison.month2.date || 'Mes 2'}</h4>
                     <div className="price-details">
@@ -643,7 +650,7 @@ function App() {
                         <span className="label">💰 Total pagado:</span>
                         <span className="value">{comparison.month2.displayText || 'No disponible'}</span>
                       </div>
-                      
+
                       {comparison.month2.basePrice && (
                         <div className="unit-price highlight">
                           <span className="label">✨ Precio por {comparison.baseUnit}:</span>
@@ -651,7 +658,7 @@ function App() {
                           <span className="unit-label">por {comparison.baseUnit}</span>
                         </div>
                       )}
-                      
+
                       <div className="quantity-info">
                         <span className="label">📦 Cantidad comprada:</span>
                         <span className="value">{comparison.month2.quantity} {comparison.month2.unit}</span>
@@ -659,38 +666,38 @@ function App() {
                     </div>
                   </div>
                 </div>
-                
+
                 {comparison.difference !== null && (
                   <div className="difference-info">
                     <div className="comparison-summary">
                       <h4>📊 Comparativa de Precios (por {comparison.baseUnit})</h4>
-                      
+
                       <div className="comparison-row">
                         <span>Mes anterior:</span>
                         <strong>${comparison.month1.basePrice.toFixed(2)}</strong>
                         <span>por {comparison.baseUnit}</span>
                       </div>
-                      
+
                       <div className="comparison-row">
                         <span>Mes actual:</span>
                         <strong>${comparison.month2.basePrice.toFixed(2)}</strong>
                         <span>por {comparison.baseUnit}</span>
                       </div>
-                      
+
                       <div className="difference-amount">
-                        Diferencia por {comparison.baseUnit}: 
+                        Diferencia por {comparison.baseUnit}:
                         <strong className={comparison.difference > 0 ? 'negative' : 'positive'}>
                           ${Math.abs(comparison.difference).toFixed(2)} {comparison.difference > 0 ? '↑ más caro' : '↓ más barato'}
                         </strong>
                       </div>
-                      
+
                       <div className="percentage-change">
-                        Variación porcentual: 
+                        Variación porcentual:
                         <strong className={comparison.percentageChange > 0 ? 'negative' : 'positive'}>
                           {Math.abs(comparison.percentageChange).toFixed(2)}% {comparison.percentageChange > 0 ? '(Aumentó)' : '(Disminuyó)'}
                         </strong>
                       </div>
-                      
+
                       <div className="practical-example">
                         <p>💡 <strong>Ejemplo práctico:</strong></p>
                         <p>Si hoy quieres comprar 1 {comparison.baseUnit} de {comparison.productName}:</p>
@@ -716,28 +723,28 @@ function App() {
           <div className="modal-content clear-modal" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowClearModal(false)}>✖</button>
             <h2>🗑️ Limpiar Datos</h2>
-            
+
             <div className="clear-options">
               <label>
-                <input 
-                  type="radio" 
-                  value="all" 
-                  checked={clearType === 'all'} 
+                <input
+                  type="radio"
+                  value="all"
+                  checked={clearType === 'all'}
                   onChange={(e) => setClearType('all')}
                 />
                 Eliminar TODOS los datos (productos y precios)
               </label>
               <label>
-                <input 
-                  type="radio" 
-                  value="month" 
-                  checked={clearType === 'month'} 
+                <input
+                  type="radio"
+                  value="month"
+                  checked={clearType === 'month'}
                   onChange={(e) => setClearType('month')}
                 />
                 Eliminar solo un mes específico
               </label>
             </div>
-            
+
             {clearType === 'month' && (
               <div className="form-group">
                 <label>Selecciona el mes a eliminar:</label>
@@ -749,18 +756,18 @@ function App() {
                 </select>
               </div>
             )}
-            
+
             <div className="form-group">
               <label>Contraseña de administrador:</label>
-              <input 
-                type="password" 
-                value={clearPassword} 
+              <input
+                type="password"
+                value={clearPassword}
                 onChange={(e) => setClearPassword(e.target.value)}
                 placeholder="Ingresa la contraseña"
               />
               <small>Contraseña por defecto: admin123</small>
             </div>
-            
+
             <div className="modal-buttons">
               <button className="cancel-btn" onClick={() => setShowClearModal(false)}>
                 Cancelar
@@ -778,10 +785,10 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowConfirmModal(false)}>
           <div className="modal-content confirm-modal" onClick={(e) => e.stopPropagation()}>
             <button className="close-btn" onClick={() => setShowConfirmModal(false)}>✖</button>
-            
+
             <div className="confirm-icon">⚠️</div>
             <h2>¿Estás completamente seguro?</h2>
-            
+
             {clearType === 'all' ? (
               <p className="warning-text">
                 Esta acción eliminará <strong>TODOS los productos y todos los precios</strong> de la base de datos.
@@ -797,13 +804,13 @@ function App() {
                 <strong>Esta acción no se puede deshacer.</strong>
               </p>
             )}
-            
+
             <div className="modal-buttons">
               <button className="cancel-btn" onClick={() => setShowConfirmModal(false)}>
                 No, Cancelar
               </button>
-              <button 
-                className="confirm-clear-btn" 
+              <button
+                className="confirm-clear-btn"
                 onClick={clearType === 'all' ? handleClearAllData : handleClearMonthData}
                 disabled={clearing}
               >

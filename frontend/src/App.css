@@ -1247,3 +1247,21 @@ button:disabled {
   background-size: 1000px 100%;
   animation: shimmer 2s infinite;
 }
+
+/* Warning Box para instrucciones de precios */
+.warning-box {
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe4cc 100%);
+  border-left: 4px solid #ed8936;
+  padding: 15px;
+  border-radius: 12px;
+  margin: 15px 0;
+}
+
+.warning-box p {
+  margin: 5px 0;
+  color: #c05621;
+}
+
+.warning-box strong {
+  color: #dd6b20;
+}

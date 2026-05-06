@@ -30,15 +30,22 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Función para limpiar precios (maneja 6,990 -> 6990)
+// Función para limpiar precios - VERSIÓN SIMPLE
 function cleanPrice(price) {
   if (!price) return null;
+  
+  // Convertir a string
   let priceStr = String(price).trim();
-  priceStr = priceStr.replace(/\./g, '');
-  priceStr = priceStr.replace(/,/g, '.');
-  priceStr = priceStr.replace(/[^0-9.-]/g, '');
-  return parseFloat(priceStr);
+  
+  // Eliminar TODOS los puntos y comas (separadores)
+  priceStr = priceStr.replace(/[.,]/g, '');
+  
+  // Eliminar cualquier otro carácter no numérico
+  priceStr = priceStr.replace(/[^0-9]/g, '');
+  
+  const result = parseFloat(priceStr);
+  return isNaN(result) ? null : result;
 }
-
 // Función para limpiar unidades
 function cleanUnit(unit) {
   if (!unit) return 'unidad';
@@ -401,29 +408,56 @@ app.get('/api/download-template', (req, res) => {
     const worksheet = XLSX.utils.json_to_sheet(templateData);
     worksheet['!cols'] = [{ wch: 30 }, { wch: 12 }, { wch: 15 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
     
-    const instructionsData = [
+     const instructionsData = [
       { 'Instrucciones': '📋 GUÍA RÁPIDA PARA LLENAR LA PLANTILLA' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '1️⃣ COLUMNA PRODUCTO:' },
       { 'Instrucciones': '   - Escribe el nombre exacto del producto' },
+      { 'Instrucciones': '   - Ejemplo: "Leche Entera", "Pollo", "Manzanas"' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '2️⃣ COLUMNA CANTIDAD:' },
       { 'Instrucciones': '   - Usa números (ej: 1, 2.5, 0.75)' },
+      { 'Instrucciones': '   - Para empaques usa 1' },
+      { 'Instrucciones': '   - Usa punto para decimales: 1.5 (no 1,5)' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '3️⃣ COLUMNA UNIDAD (usar minúsculas):' },
-      { 'Instrucciones': '   ✅ UNIDADES VÁLIDAS: kg, g, lb, litro, unidad, bandeja, panal, caja, bolsa' },
+      { 'Instrucciones': '   ✅ UNIDADES VÁLIDAS:' },
+      { 'Instrucciones': '   • kg (kilogramos)' },
+      { 'Instrucciones': '   • g (gramos)' },
+      { 'Instrucciones': '   • lb (libras)' },
+      { 'Instrucciones': '   • litro' },
+      { 'Instrucciones': '   • unidad' },
+      { 'Instrucciones': '   • bandeja' },
+      { 'Instrucciones': '   • panal' },
+      { 'Instrucciones': '   • caja' },
+      { 'Instrucciones': '   • bolsa' },
       { 'Instrucciones': '' },
-      { 'Instrucciones': '4️⃣ COLUMNA PRECIO:' },
-      { 'Instrucciones': '   • Solo números, sin puntos ni comas' },
-      { 'Instrucciones': '   • Ejemplo correcto: 6990' },
+      { 'Instrucciones': '4️⃣ COLUMNA PRECIO ⚠️ IMPORTANTE ⚠️:' },
+      { 'Instrucciones': '   🔴 NO uses puntos, NO uses comas' },
+      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 5483 (para cinco mil cuatrocientos ochenta y tres)' },
+      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 5,483 o 5.483' },
+      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 27980 (para veintisiete mil novecientos ochenta)' },
+      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 27,980 o 27.980' },
+      { 'Instrucciones': '   ✅ Ejemplo CORRECTO: 1250 (para mil doscientos cincuenta)' },
+      { 'Instrucciones': '   ❌ Ejemplo INCORRECTO: 1.250 o 1,250' },
+      { 'Instrucciones': '' },
+      { 'Instrucciones': '📌 EJEMPLOS PRÁCTICOS:' },
+      { 'Instrucciones': '   • Si pagaste $5,483 → Escribe: 5483' },
+      { 'Instrucciones': '   • Si pagaste $27,980 → Escribe: 27980' },
+      { 'Instrucciones': '   • Si pagaste $1,200 → Escribe: 1200' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '5️⃣ COLUMNAS DE EQUIVALENCIA (opcional, solo para empaques):' },
       { 'Instrucciones': '   • Equivalencia_Cantidad: ¿Cuántas unidades base tiene el empaque?' },
       { 'Instrucciones': '   • Equivalencia_Unidad: ¿Cuál es la unidad base? (ej: unidades, gramos, kg)' },
       { 'Instrucciones': '   • Ejemplo: 1 panal = 30 unidades → Cantidad:30, Unidad:unidades' },
       { 'Instrucciones': '' },
-      { 'Instrucciones': '💡 CONSEJOS: Borra las filas de ejemplo antes de subir tu archivo' }
+      { 'Instrucciones': '💡 CONSEJOS IMPORTANTES:' },
+      { 'Instrucciones': '🔥 LOS PRECIOS DEBEN SER SÓLO NÚMEROS, SIN PUNTOS NI COMAS 🔥' },
+      { 'Instrucciones': '• Borra las filas de ejemplo antes de subir tu archivo' },
+      { 'Instrucciones': '• Revisa que los precios no tengan comas ni puntos' },
+      { 'Instrucciones': '• Si ves un error, verifica el formato de los precios' }
     ];
+    
     
     const instructionsSheet = XLSX.utils.json_to_sheet(instructionsData);
     instructionsSheet['!cols'] = [{ wch: 80 }];

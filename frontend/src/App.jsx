@@ -26,11 +26,30 @@ function App() {
   const [clearType, setClearType] = useState('all')
   const [clearing, setClearing] = useState(false)
 
+  // Estados para la nueva sección de productos
+  const [allProducts, setAllProducts] = useState([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState('todos');
+  const [selectedLetter, setSelectedLetter] = useState('todos');
+  const [showProductDetail, setShowProductDetail] = useState(false);
+
   useEffect(() => {
     checkBackend()
     fetchMonths()
     fetchStats()
   }, [])
+
+  useEffect(() => {
+    if (activeTab === 'search') {
+      fetchAllProducts(selectedMonth, selectedLetter);
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab === 'search') {
+      fetchAllProducts(selectedMonth, selectedLetter);
+    }
+  }, [selectedMonth, selectedLetter])
 
   const checkBackend = async () => {
     try {
@@ -52,6 +71,19 @@ function App() {
       console.error('Error fetching months:', error)
     }
   }
+
+  const fetchAllProducts = async (month = 'todos', letter = 'todos') => {
+    setProductsLoading(true);
+    try {
+      const response = await axios.get(`/api/products/recent?month=${month}&letter=${letter}`);
+      setAllProducts(response.data);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      alert('Error al cargar los productos');
+    } finally {
+      setProductsLoading(false);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -98,7 +130,6 @@ function App() {
     }
   }
 
-  // Función para abrir confirmación después de validar contraseña
   const handleOpenConfirm = () => {
     if (!clearPassword) {
       alert('❌ Ingresa la contraseña de administrador')
@@ -114,7 +145,6 @@ function App() {
     setShowConfirmModal(true)
   }
 
-  // Función para limpiar todos los datos
   const handleClearAllData = async () => {
     setClearing(true)
     try {
@@ -139,7 +169,6 @@ function App() {
     }
   }
 
-  // Función para limpiar datos de un mes específico
   const handleClearMonthData = async () => {
     setClearing(true)
     try {
@@ -167,6 +196,16 @@ function App() {
       setClearing(false)
     }
   }
+
+  const handleSelectProduct = (product) => {
+    setSelectedProduct(product);
+    setShowProductDetail(true);
+  };
+
+  const handleBackToList = () => {
+    setShowProductDetail(false);
+    setSelectedProduct(null);
+  };
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
@@ -349,7 +388,6 @@ function App() {
 
             <form onSubmit={handleUpload}>
               <div className="form-row">
-                {/* Columna 1: Selector de Mes */}
                 <div className="form-col">
                   <div className="form-group month-selector-group">
                     <label>📅 Selecciona el mes de compra</label>
@@ -384,7 +422,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Columna 2: Selector de Archivo */}
                 <div className="form-col">
                   <div className="form-group file-group">
                     <label>📁 Archivo Excel</label>
@@ -418,7 +455,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Botón de subida - ancho completo */}
               <button type="submit" disabled={uploading} className="upload-btn">
                 {uploading ? (
                   <>
@@ -439,110 +475,225 @@ function App() {
 
         {activeTab === 'search' && (
           <div className="search-section">
-            <h2>🔍 Buscar Productos</h2>
-
-            <div className="search-box">
-              <input
-                type="text"
-                placeholder="Ej: Pollo, Leche, Huevos, Galletas..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-              />
-              <button onClick={handleSearch}>Buscar</button>
-            </div>
-
-            {searchResults.length > 0 && (
-              <div className="results-list">
-                <h3>Resultados encontrados ({searchResults.length})</h3>
-                {searchResults.map(product => (
-                  <div
-                    key={product.id}
-                    className="product-card"
-                    onClick={() => setSelectedProduct(product)}
-                  >
-                    <h4>{product.name}</h4>
-                    <div className="product-info">
-                      <span>📦 {product.defaultQuantity} {product.defaultUnit} (por defecto)</span>
-                      <span>📊 {product.priceHistory.length} registros</span>
-                      {product.priceHistory[0] && (
-                        <span>💰 {product.priceHistory[0].displayText}</span>
-                      )}
+            {showProductDetail && selectedProduct ? (
+              // Vista de detalle
+              <div className="product-detail-view">
+                <div className="detail-header">
+                  <button className="back-btn" onClick={handleBackToList}>
+                    ← Volver a la lista
+                  </button>
+                  <h2>📦 {selectedProduct.name}</h2>
+                  <p className="default-info">Cantidad típica: {selectedProduct.defaultQuantity} {selectedProduct.defaultUnit}</p>
+                </div>
+                
+                <div className="detail-body">
+                  <div className="price-history-list">
+                    <h3>📊 Historial de Precios</h3>
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Fecha</th>
+                            <th>Cantidad</th>
+                            <th>Precio Total</th>
+                            <th>Precio por Unidad</th>
+                            <th>¿Qué significa?</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(selectedProduct.priceHistory || selectedProduct.allPrices || [])
+                            .sort((a, b) => new Date(b.date) - new Date(a.date))
+                            .map((item, idx) => {
+                              const hasEquivalencia = item.equivalentQuantity && item.equivalentUnit;
+                              const hasPricePerUnit = item.pricePerUnit !== null && item.pricePerUnit !== undefined && !isNaN(item.pricePerUnit);
+                              
+                              let precioUnidadTexto = '';
+                              let significadoTexto = '';
+                              
+                              if (hasEquivalencia) {
+                                precioUnidadTexto = `$${item.pricePerUnit.toFixed(2)}/${item.equivalentUnit}`;
+                                significadoTexto = `1 ${item.equivalentUnit} = $${item.pricePerUnit.toFixed(2)}`;
+                              } else if (hasPricePerUnit && !item.isPackage) {
+                                precioUnidadTexto = `$${item.pricePerUnit.toFixed(2)}/${item.unit}`;
+                                significadoTexto = `1 ${item.unit} = $${item.pricePerUnit.toFixed(2)}`;
+                              } else {
+                                precioUnidadTexto = `$${item.price}/${item.unit}`;
+                                significadoTexto = `1 ${item.unit} = $${item.price}`;
+                              }
+                              
+                              return (
+                                <tr key={idx}>
+                                  <td>{item.date}</td>
+                                  <td>
+                                    {item.quantity} {item.unit}
+                                    {hasEquivalencia && (
+                                      <span className="equivalencia-note"> (equivale a {item.quantity * item.equivalentQuantity} {item.equivalentUnit})</span>
+                                    )}
+                                  </td>
+                                  <td>${typeof item.price === 'number' ? item.price.toLocaleString() : item.price}</td>
+                                  <td className="price-value">{precioUnidadTexto}</td>
+                                  <td className="explanation">{significadoTexto}</td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {selectedProduct && (
-              <div className="modal-overlay" onClick={() => setSelectedProduct(null)}>
-                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                  <button className="close-btn" onClick={() => setSelectedProduct(null)}>✖ Cerrar</button>
-                  <h2>{selectedProduct.name}</h2>
-                  <p className="default-info">📦 Cantidad típica: {selectedProduct.defaultQuantity} {selectedProduct.defaultUnit}</p>
-
-                  <div className="price-history-list">
-                    <h3>Historial de Precios</h3>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Fecha</th>
-                          <th>Cantidad</th>
-                          <th>Precio Total</th>
-                          <th>Precio por Unidad</th>
-                          <th>¿Qué significa?</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedProduct.priceHistory
-                          .sort((a, b) => new Date(b.date) - new Date(a.date))
-                          .map((item, idx) => {
-                            const hasEquivalencia = item.equivalentQuantity && item.equivalentUnit;
-                            const hasPricePerUnit = item.pricePerUnit !== null && item.pricePerUnit !== undefined && !isNaN(item.pricePerUnit);
-
-                            let precioUnidadTexto = '';
-                            let significadoTexto = '';
-
-                            if (hasEquivalencia) {
-                              precioUnidadTexto = `$${item.pricePerUnit.toFixed(2)}/${item.equivalentUnit}`;
-                              significadoTexto = `1 ${item.equivalentUnit} = $${item.pricePerUnit.toFixed(2)}`;
-                            } else if (hasPricePerUnit && !item.isPackage) {
-                              precioUnidadTexto = `$${item.pricePerUnit.toFixed(2)}/${item.unit}`;
-                              significadoTexto = `1 ${item.unit} = $${item.pricePerUnit.toFixed(2)}`;
-                            } else {
-                              precioUnidadTexto = `$${item.price}/${item.unit}`;
-                              significadoTexto = `1 ${item.unit} = $${item.price}`;
-                            }
-
-                            return (
-                              <tr key={idx}>
-                                <td>{item.date}</td>
-                                <td>
-                                  {item.quantity} {item.unit}
-                                  {hasEquivalencia && (
-                                    <span className="equivalencia-note"> (equivale a {item.quantity * item.equivalentQuantity} {item.equivalentUnit})</span>
-                                  )}
-                                </td>
-                                <td>${typeof item.price === 'number' ? item.price.toLocaleString() : item.price}</td>
-                                <td className="price-value">{precioUnidadTexto}</td>
-                                <td className="explanation">{significadoTexto}</td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-
-                    <div className="info-note">
-                      <p>💡 <strong>Entendiendo los precios:</strong></p>
-                      <ul>
-                        <li><strong>Precio Total:</strong> Lo que pagaste por toda la compra</li>
-                        <li><strong>Precio por Unidad:</strong> Lo que cuesta 1 unidad base (esto te ayuda a comparar ofertas reales)</li>
-                        <li><strong>Para empaques:</strong> Se muestra el precio por unidad base cuando hay equivalencia</li>
-                      </ul>
-                    </div>
+                  
+                  <div className="info-note">
+                    <p>💡 <strong>Entendiendo los precios:</strong></p>
+                    <ul>
+                      <li><strong>Precio Total:</strong> Lo que pagaste por toda la compra</li>
+                      <li><strong>Precio por Unidad:</strong> Lo que cuesta 1 unidad base (esto te ayuda a comparar ofertas reales)</li>
+                      <li><strong>Para empaques:</strong> Se muestra el precio por unidad base cuando hay equivalencia</li>
+                    </ul>
                   </div>
                 </div>
               </div>
+            ) : (
+              // Vista de lista
+              <>
+                <h2>🔍 Buscar Productos</h2>
+                
+                <div className="search-box">
+                  <input
+                    type="text"
+                    placeholder="🔎 Buscar por nombre de producto... (ej: Pollo, Leche, Huevos)"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  />
+                  <button onClick={handleSearch}>
+                    🔍 Buscar
+                  </button>
+                </div>
+                
+                {searchResults.length > 0 && (
+                  <div className="results-list">
+                    <h3>🔎 Resultados de búsqueda ({searchResults.length})</h3>
+                    {searchResults.map(product => (
+                      <div 
+                        key={product.id} 
+                        className="product-card"
+                        onClick={() => handleSelectProduct(product)}
+                      >
+                        <h4>{product.name}</h4>
+                        <div className="product-info">
+                          <span>📦 {product.defaultQuantity} {product.defaultUnit} (por defecto)</span>
+                          <span>📊 {product.priceHistory.length} registros</span>
+                          {product.priceHistory[0] && (
+                            <span>💰 {product.priceHistory[0].displayText}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {searchTerm && searchResults.length === 0 && (
+                  <div className="no-results">
+                    <p>❌ No se encontraron productos con "{searchTerm}"</p>
+                  </div>
+                )}
+                
+                {searchTerm === '' && (
+                  <>
+                    <hr className="search-divider" />
+                    
+                    <div className="filters-container">
+                      <div className="filter-group">
+                        <label>📅 Filtrar por mes:</label>
+                        <select 
+                          value={selectedMonth} 
+                          onChange={(e) => {
+                            setSelectedMonth(e.target.value);
+                            fetchAllProducts(e.target.value, selectedLetter);
+                          }}
+                          className="filter-select"
+                        >
+                          <option value="todos">📆 Todos los meses</option>
+                          {months.map(month => (
+                            <option key={month} value={month}>{month}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div className="filter-group">
+                        <label>🔤 Filtrar por letra:</label>
+                        <div className="letter-filter">
+                          <button 
+                            className={`letter-btn ${selectedLetter === 'todos' ? 'active' : ''}`}
+                            onClick={() => {
+                              setSelectedLetter('todos');
+                              fetchAllProducts(selectedMonth, 'todos');
+                            }}
+                          >
+                            Todos
+                          </button>
+                          {['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z'].map(letter => (
+                            <button 
+                              key={letter}
+                              className={`letter-btn ${selectedLetter === letter ? 'active' : ''}`}
+                              onClick={() => {
+                                setSelectedLetter(letter);
+                                fetchAllProducts(selectedMonth, letter);
+                              }}
+                            >
+                              {letter}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {productsLoading && (
+                      <div className="loading-products">
+                        <div className="spinner"></div>
+                        <p>Cargando productos...</p>
+                      </div>
+                    )}
+                    
+                    {!productsLoading && (
+                      <div className="products-list">
+                        <h3>📦 Todos los productos ({allProducts.length})</h3>
+                        {allProducts.length === 0 ? (
+                          <div className="empty-products">
+                            <p>📭 No hay productos para mostrar</p>
+                            <p>Sube un Excel con productos para comenzar</p>
+                          </div>
+                        ) : (
+                          allProducts.map(product => (
+                            <div 
+                              key={product.id} 
+                              className="product-card"
+                              onClick={() => handleSelectProduct(product)}
+                            >
+                              <div className="product-card-header">
+                                <h4>{product.name}</h4>
+                                {product.latestPrice && (
+                                  <span className="latest-price-badge">
+                                    📅 {product.latestPrice.date}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="product-info">
+                                <span>📦 {product.defaultQuantity} {product.defaultUnit} (por defecto)</span>
+                                <span>📊 {product.allPrices.length} registros</span>
+                                {product.latestPrice && (
+                                  <span className="latest-price">
+                                    💰 Último: {product.latestPrice.displayText}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
@@ -763,7 +914,7 @@ function App() {
                 onChange={(e) => setClearPassword(e.target.value)}
                 placeholder="Ingresa la contraseña"
               />
-              <small>Contraseña por defecto: admin123</small>
+            {/*  <small>Contraseña por defecto: admin123</small>*/}
             </div>
 
             <div className="modal-buttons">

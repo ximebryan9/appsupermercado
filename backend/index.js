@@ -410,6 +410,102 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
+
+//////////////////ruta para obtener todos los productos 
+
+// Ruta para obtener todos los productos con sus precios más recientes
+app.get('/api/products/recent', async (req, res) => {
+  try {
+    const { month, letter } = req.query;
+    
+    // Construir la consulta base
+    let query = supabase
+      .from('products')
+      .select(`
+        id,
+        name,
+        default_quantity,
+        default_unit,
+        unit_type
+      `);
+    
+    // Filtrar por letra inicial
+    if (letter && letter !== 'todos') {
+      query = query.ilike('name', `${letter}%`);
+    }
+    
+    const { data: products, error: productsError } = await query;
+    
+    if (productsError) throw productsError;
+    
+    if (!products || products.length === 0) {
+      return res.json([]);
+    }
+    
+    const productIds = products.map(p => p.id);
+    
+    // Obtener precios históricos
+    let pricesQuery = supabase
+      .from('price_history')
+      .select('*')
+      .in('product_id', productIds)
+      .order('month_date', { ascending: false });
+    
+    // Filtrar por mes específico
+    if (month && month !== 'todos') {
+      pricesQuery = pricesQuery.eq('month_date', month);
+    }
+    
+    const { data: prices, error: pricesError } = await pricesQuery;
+    
+    if (pricesError) throw pricesError;
+    
+    // Agrupar por producto y obtener el precio más reciente
+    const results = products.map(product => {
+      const productPrices = prices.filter(p => p.product_id === product.id);
+      
+      // Obtener el precio más reciente (el primero porque está ordenado DESC)
+      const latestPrice = productPrices[0];
+      
+      return {
+        id: product.id,
+        name: product.name,
+        defaultQuantity: product.default_quantity,
+        defaultUnit: product.default_unit,
+        unitType: product.unit_type,
+        latestPrice: latestPrice ? {
+          date: latestPrice.month_date,
+          price: latestPrice.price,
+          quantity: latestPrice.quantity,
+          unit: latestPrice.unit,
+          pricePerUnit: latestPrice.price_per_unit,
+          isPackage: latestPrice.is_package,
+          equivalentQuantity: latestPrice.equivalent_quantity,
+          equivalentUnit: latestPrice.equivalent_unit,
+          displayText: `${latestPrice.quantity} ${latestPrice.unit} por $${latestPrice.price}`
+        } : null,
+        allPrices: productPrices.map(p => ({
+          date: p.month_date,
+          price: p.price,
+          quantity: p.quantity,
+          unit: p.unit,
+          pricePerUnit: p.price_per_unit,
+          isPackage: p.is_package,
+          equivalentQuantity: p.equivalent_quantity,
+          equivalentUnit: p.equivalent_unit,
+          displayText: `${p.quantity} ${p.unit} por $${p.price}`
+        }))
+      };
+    });
+    
+    res.json(results);
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Ruta para descargar plantilla Excel
 app.get('/api/download-template', (req, res) => {
   try {
@@ -644,7 +740,7 @@ app.get('/api/stats', async (req, res) => {
 app.delete('/api/clear-all-data', async (req, res) => {
   try {
     const { password } = req.body;
-    const ADMIN_PASSWORD = 'admin123';
+    const ADMIN_PASSWORD = 'admin2206';
 
     if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Contraseña incorrecta' });
@@ -710,6 +806,6 @@ app.listen(PORT, () => {
   console.log(`\n💾 Base de datos: Supabase PostgreSQL`);
   console.log(`📦 Enfoque Híbrido: Unidades básicas + Empaques especiales`);
   console.log(`🔄 Soporte para equivalencias (ej: 1 panal = 30 unidades)`);
-  console.log(`🗑️ Contraseña de limpieza: admin123`);
+  console.log(`🗑️ Contraseña de limpieza: admin2206`);
   console.log(`💰 Precios: Transformación automática de comas y puntos (5,483 → 5483)\n`);
 });

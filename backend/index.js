@@ -30,7 +30,7 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==============================================
-// FUNCIÓN PARA LIMPIAR PRECIOS - OPCIÓN B (TRANSFORMA AUTOMÁTICAMENTE)
+// FUNCIÓN PARA LIMPIAR PRECIOS - TRANSFORMA AUTOMÁTICAMENTE
 // "5,483" -> "5483" | "27,980" -> "27980"
 // ==============================================
 function cleanPrice(price) {
@@ -38,14 +38,10 @@ function cleanPrice(price) {
   
   let priceStr = String(price).trim();
   
-  // Si ya es un número
   if (typeof price === 'number' && !isNaN(price)) {
     return Math.round(price);
   }
   
-  // ✅ TRANSFORMAR: eliminar comas y puntos (formato colombiano)
-  // "5,483" -> "5483"
-  // "27,980" -> "27980"
   priceStr = priceStr.replace(/[.,]/g, '');
   priceStr = priceStr.replace(/[^0-9]/g, '');
   
@@ -113,23 +109,32 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Subir Excel con soporte para equivalencias de empaques
+// ==============================================
+// SUBIR EXCEL - EL SUPERMERCADO VIENE DEL FORMULARIO
+// ==============================================
 app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
   try {
     const file = req.file;
-    let { monthDate } = req.body;
-
+    const { monthDate, supermarket } = req.body;  // ← Supermercado del formulario
+    
+    console.log(`📥 Procesando: ${file?.originalname}`);
+    console.log(`📅 Mes: ${monthDate}`);
+    console.log(`🏪 Supermercado: ${supermarket}`);
+    
+    if (!supermarket || supermarket === 'No especificado') {
+      return res.status(400).json({ error: 'Por favor selecciona un supermercado' });
+    }
+    
     // Convertir "2026-05" a "2026-05-01"
-    if (monthDate && monthDate.length === 7 && /^\d{4}-\d{2}$/.test(monthDate)) {
-      monthDate = `${monthDate}-01`;
-      console.log(`📅 Fecha convertida: ${monthDate}`);
+    let finalMonthDate = monthDate;
+    if (finalMonthDate && finalMonthDate.length === 7 && /^\d{4}-\d{2}$/.test(finalMonthDate)) {
+      finalMonthDate = `${finalMonthDate}-01`;
+      console.log(`📅 Fecha convertida: ${finalMonthDate}`);
     }
 
-    if (!file || !monthDate) {
+    if (!file || !finalMonthDate) {
       return res.status(400).json({ error: 'Faltan archivo o fecha' });
     }
-
-    console.log(`📥 Procesando: ${file.originalname} para ${monthDate}`);
 
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const worksheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -154,7 +159,6 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
       const unit = row['Unidad'] || row['unidad'];
       const price = row['Precio'] || row['precio'];
 
-      // Leer equivalencias (opcionales)
       const equivQty = row['Equivalencia_Cantidad'] || row['equiv_cantidad'] || row['Equivalencia'] || null;
       const equivUnit = row['Equivalencia_Unidad'] || row['equiv_unidad'] || null;
 
@@ -170,17 +174,15 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         continue;
       }
 
-      // Limpiar precio usando la función que transforma automáticamente
       const cleanPriceValue = cleanPrice(price);
       
       if (cleanPriceValue === null || cleanPriceValue <= 0) {
         errorCount++;
-        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}". Asegúrate de que sea un número positivo. Ejemplo: 5483 para $5,483`);
+        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}"`);
         console.log(`❌ ERROR: Precio inválido para "${productName}"`);
         continue;
       }
 
-      // Limpiar cantidad (mantiene decimales para kg, litros, etc.)
       let quantityNum;
       if (typeof quantity === 'number') {
         quantityNum = quantity;
@@ -192,42 +194,31 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
         quantityNum = 1;
       }
 
-      // Limpiar unidad
       let cleanUnitValue = unit ? String(unit).trim().toLowerCase() : 'unidad';
       cleanUnitValue = cleanUnit(cleanUnitValue);
 
-      // Determinar si es empaque o unidad básica
       const basicUnits = ['kg', 'g', 'lb', 'litro', 'ml', 'unidad'];
       const isPackage = !basicUnits.includes(cleanUnitValue);
 
-      // Procesar equivalencias
       let equivalentQty = null;
       let equivalentUnit = null;
       let pricePerUnit = null;
 
       if (isPackage && (equivQty || equivUnit)) {
-        // Empaque con equivalencia
         equivalentQty = equivQty ? parseFloat(equivQty) : quantityNum;
         equivalentUnit = equivUnit ? cleanUnit(equivUnit) : cleanUnitValue;
         const totalBaseUnits = quantityNum * equivalentQty;
         pricePerUnit = cleanPriceValue / totalBaseUnits;
-        console.log(`📦 Empaque: ${quantityNum} ${cleanUnitValue} = ${totalBaseUnits} ${equivalentUnit}, precio por ${equivalentUnit}: $${pricePerUnit.toFixed(2)}`);
+        console.log(`📦 Empaque: ${quantityNum} ${cleanUnitValue} = ${totalBaseUnits} ${equivalentUnit}`);
       } else if (!isPackage) {
-        // Unidad básica
         pricePerUnit = cleanPriceValue / quantityNum;
-      } else {
-        // Empaque sin equivalencia
-        pricePerUnit = null;
-        console.log(`⚠️ Empaque sin equivalencia: ${productName.trim()}`);
       }
 
-      // Redondear pricePerUnit a 2 decimales
       if (pricePerUnit !== null) {
         pricePerUnit = Math.round(pricePerUnit * 100) / 100;
       }
 
       try {
-        // Buscar producto
         let { data: existingProduct } = await supabase
           .from('products')
           .select('id')
@@ -256,18 +247,16 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
           console.log(`✅ Producto existente: ${productName.trim()}`);
         }
 
-        // Verificar si ya existe un registro para este producto y mes
         const { data: existingPrice } = await supabase
           .from('price_history')
           .select('id')
           .eq('product_id', productId)
-          .eq('month_date', monthDate)
+          .eq('month_date', finalMonthDate)
           .maybeSingle();
 
         let priceError;
 
         if (existingPrice) {
-          // Actualizar precio existente
           const { error } = await supabase
             .from('price_history')
             .update({
@@ -277,13 +266,13 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
               price_per_unit: pricePerUnit,
               is_package: isPackage,
               equivalent_quantity: equivalentQty,
-              equivalent_unit: equivalentUnit
+              equivalent_unit: equivalentUnit,
+              supermarket: supermarket
             })
             .eq('id', existingPrice.id);
           priceError = error;
-          console.log(`🔄 Actualizado: ${productName.trim()} para ${monthDate}`);
+          console.log(`🔄 Actualizado: ${productName.trim()}`);
         } else {
-          // Insertar nuevo precio
           const { error } = await supabase
             .from('price_history')
             .insert({
@@ -292,13 +281,14 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
               quantity: quantityNum,
               unit: cleanUnitValue,
               price_per_unit: pricePerUnit,
-              month_date: monthDate,
+              month_date: finalMonthDate,
               is_package: isPackage,
               equivalent_quantity: equivalentQty,
-              equivalent_unit: equivalentUnit
+              equivalent_unit: equivalentUnit,
+              supermarket: supermarket
             });
           priceError = error;
-          console.log(`✨ Insertado: ${productName.trim()} para ${monthDate}`);
+          console.log(`✨ Insertado: ${productName.trim()}`);
         }
 
         if (priceError) throw priceError;
@@ -332,93 +322,68 @@ app.post('/api/upload-excel', upload.single('file'), async (req, res) => {
   }
 });
 
-// Buscar productos (con soporte para equivalencias)
+// Buscar productos
 app.get('/api/search', async (req, res) => {
   try {
     const { query } = req.query;
-
+    
     if (!query) return res.json([]);
-
+    
     const { data: products } = await supabase
       .from('products')
       .select('*')
       .ilike('name', `%${query}%`)
       .limit(20);
-
+    
     if (!products || products.length === 0) {
       return res.json([]);
     }
-
+    
     const productIds = products.map(p => p.id);
-
+    
     const { data: prices } = await supabase
       .from('price_history')
       .select('*')
       .in('product_id', productIds)
       .order('month_date', { ascending: false });
-
+    
     const results = products.map(product => {
       const productPrices = prices.filter(p => p.product_id === product.id);
-
+      
       return {
         id: product.id,
         name: product.name,
         defaultQuantity: product.default_quantity,
         defaultUnit: product.default_unit,
         unitType: product.unit_type,
-        priceHistory: productPrices.map(p => {
-          let displayText = `${p.quantity} ${p.unit} por $${p.price}`;
-          let priceDisplay = '';
-          let equivalentInfo = null;
-
-          if (p.is_package && p.equivalent_quantity && p.equivalent_unit) {
-            equivalentInfo = {
-              quantity: p.equivalent_quantity,
-              unit: p.equivalent_unit,
-              totalEquivalent: p.quantity * p.equivalent_quantity
-            };
-            priceDisplay = p.price_per_unit ? `$${p.price_per_unit.toFixed(2)}/${p.equivalent_unit}` : `$${p.price}/${p.unit}`;
-            displayText = `${p.quantity} ${p.unit} (equivale a ${p.quantity * p.equivalent_quantity} ${p.equivalent_unit}) por $${p.price}`;
-          } else if (!p.is_package) {
-            priceDisplay = p.price_per_unit ? `$${p.price_per_unit.toFixed(2)}/${p.unit}` : `$${p.price}/${p.unit}`;
-          } else {
-            priceDisplay = `$${p.price}/${p.unit}`;
-          }
-
-          return {
-            date: p.month_date,
-            price: p.price,
-            quantity: p.quantity,
-            unit: p.unit,
-            pricePerUnit: p.price_per_unit,
-            isPackage: p.is_package,
-            equivalentQuantity: p.equivalent_quantity,
-            equivalentUnit: p.equivalent_unit,
-            displayText: displayText,
-            priceDisplay: priceDisplay,
-            equivalentInfo: equivalentInfo
-          };
-        })
+        priceHistory: productPrices.map(p => ({
+          date: p.month_date,
+          price: p.price,
+          quantity: p.quantity,
+          unit: p.unit,
+          pricePerUnit: p.price_per_unit,
+          isPackage: p.is_package,
+          equivalentQuantity: p.equivalent_quantity,
+          equivalentUnit: p.equivalent_unit,
+          supermarket: p.supermarket || 'No especificado',
+          displayText: `${p.quantity} ${p.unit} por $${p.price}`
+        }))
       };
     });
-
+    
     res.json(results);
-
+    
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-
-//////////////////ruta para obtener todos los productos 
-
 // Ruta para obtener todos los productos con sus precios más recientes
 app.get('/api/products/recent', async (req, res) => {
   try {
     const { month, letter } = req.query;
     
-    // Construir la consulta base
     let query = supabase
       .from('products')
       .select(`
@@ -429,7 +394,6 @@ app.get('/api/products/recent', async (req, res) => {
         unit_type
       `);
     
-    // Filtrar por letra inicial
     if (letter && letter !== 'todos') {
       query = query.ilike('name', `${letter}%`);
     }
@@ -444,14 +408,12 @@ app.get('/api/products/recent', async (req, res) => {
     
     const productIds = products.map(p => p.id);
     
-    // Obtener precios históricos
     let pricesQuery = supabase
       .from('price_history')
       .select('*')
       .in('product_id', productIds)
       .order('month_date', { ascending: false });
     
-    // Filtrar por mes específico
     if (month && month !== 'todos') {
       pricesQuery = pricesQuery.eq('month_date', month);
     }
@@ -460,11 +422,8 @@ app.get('/api/products/recent', async (req, res) => {
     
     if (pricesError) throw pricesError;
     
-    // Agrupar por producto y obtener el precio más reciente
     const results = products.map(product => {
       const productPrices = prices.filter(p => p.product_id === product.id);
-      
-      // Obtener el precio más reciente (el primero porque está ordenado DESC)
       const latestPrice = productPrices[0];
       
       return {
@@ -478,10 +437,7 @@ app.get('/api/products/recent', async (req, res) => {
           price: latestPrice.price,
           quantity: latestPrice.quantity,
           unit: latestPrice.unit,
-          pricePerUnit: latestPrice.price_per_unit,
-          isPackage: latestPrice.is_package,
-          equivalentQuantity: latestPrice.equivalent_quantity,
-          equivalentUnit: latestPrice.equivalent_unit,
+          supermarket: latestPrice.supermarket || 'No especificado',
           displayText: `${latestPrice.quantity} ${latestPrice.unit} por $${latestPrice.price}`
         } : null,
         allPrices: productPrices.map(p => ({
@@ -493,6 +449,7 @@ app.get('/api/products/recent', async (req, res) => {
           isPackage: p.is_package,
           equivalentQuantity: p.equivalent_quantity,
           equivalentUnit: p.equivalent_unit,
+          supermarket: p.supermarket || 'No especificado',
           displayText: `${p.quantity} ${p.unit} por $${p.price}`
         }))
       };
@@ -534,16 +491,7 @@ app.get('/api/download-template', (req, res) => {
       { 'Instrucciones': '   - Usa punto para decimales: 1.5 (no 1,5)' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '3️⃣ COLUMNA UNIDAD (usar minúsculas):' },
-      { 'Instrucciones': '   ✅ UNIDADES VÁLIDAS:' },
-      { 'Instrucciones': '   • kg (kilogramos)' },
-      { 'Instrucciones': '   • g (gramos)' },
-      { 'Instrucciones': '   • lb (libras)' },
-      { 'Instrucciones': '   • litro' },
-      { 'Instrucciones': '   • unidad' },
-      { 'Instrucciones': '   • bandeja' },
-      { 'Instrucciones': '   • panal' },
-      { 'Instrucciones': '   • caja' },
-      { 'Instrucciones': '   • bolsa' },
+      { 'Instrucciones': '   ✅ UNIDADES VÁLIDAS: kg, g, lb, litro, unidad, bandeja, panal, caja, bolsa' },
       { 'Instrucciones': '' },
       { 'Instrucciones': '4️⃣ COLUMNA PRECIO:' },
       { 'Instrucciones': '   ✅ Puedes usar números con o sin comas (el sistema los transforma automáticamente)' },
@@ -583,27 +531,27 @@ app.get('/api/download-template', (req, res) => {
   }
 });
 
-// Comparar precios (con soporte para equivalencias)
+// Comparar precios
 app.get('/api/compare/:productId', async (req, res) => {
   try {
     const { productId } = req.params;
     const { month1, month2 } = req.query;
-
+    
     const { data: product } = await supabase
       .from('products')
       .select('name, default_quantity, default_unit, unit_type')
       .eq('id', productId)
       .single();
-
+    
     const { data: prices } = await supabase
       .from('price_history')
       .select('*')
       .eq('product_id', productId)
       .in('month_date', [month1, month2]);
-
+    
     const price1 = prices.find(p => p.month_date === month1);
     const price2 = prices.find(p => p.month_date === month2);
-
+    
     const getBasePrice = (priceData) => {
       if (!priceData) return null;
       if (priceData.is_package && priceData.equivalent_quantity && priceData.equivalent_unit) {
@@ -614,7 +562,7 @@ app.get('/api/compare/:productId', async (req, res) => {
       }
       return null;
     };
-
+    
     const getBaseUnit = (priceData) => {
       if (!priceData) return 'unidad';
       if (priceData.is_package && priceData.equivalent_unit) {
@@ -622,23 +570,24 @@ app.get('/api/compare/:productId', async (req, res) => {
       }
       return priceData.unit || 'unidad';
     };
-
+    
     const getDisplayText = (priceData) => {
       if (!priceData) return 'No disponible';
+      const supermarketText = priceData.supermarket ? ` (${priceData.supermarket})` : '';
       if (priceData.is_package && priceData.equivalent_quantity && priceData.equivalent_unit) {
         const totalBaseUnits = priceData.quantity * priceData.equivalent_quantity;
-        return `${priceData.quantity} ${priceData.unit} (equivale a ${totalBaseUnits} ${priceData.equivalent_unit}) por $${priceData.price}`;
+        return `${priceData.quantity} ${priceData.unit} (equivale a ${totalBaseUnits} ${priceData.equivalent_unit}) por $${priceData.price}${supermarketText}`;
       }
-      return `${priceData.quantity} ${priceData.unit} por $${priceData.price}`;
+      return `${priceData.quantity} ${priceData.unit} por $${priceData.price}${supermarketText}`;
     };
-
+    
     const basePrice1 = getBasePrice(price1);
     const basePrice2 = getBasePrice(price2);
     const baseUnit = getBaseUnit(price1) || getBaseUnit(price2) || 'unidad';
-
+    
     const difference = (basePrice1 && basePrice2) ? (basePrice2 - basePrice1) : null;
     const percentageChange = (basePrice1 && basePrice2) ? ((basePrice2 - basePrice1) / basePrice1 * 100) : null;
-
+    
     res.json({
       productName: product.name,
       productType: product.unit_type,
@@ -647,6 +596,7 @@ app.get('/api/compare/:productId', async (req, res) => {
         price: price1?.price || null,
         quantity: price1?.quantity || null,
         unit: price1?.unit || null,
+        supermarket: price1?.supermarket || 'No especificado',
         isPackage: price1?.is_package || false,
         equivalentQuantity: price1?.equivalent_quantity || null,
         equivalentUnit: price1?.equivalent_unit || null,
@@ -659,6 +609,7 @@ app.get('/api/compare/:productId', async (req, res) => {
         price: price2?.price || null,
         quantity: price2?.quantity || null,
         unit: price2?.unit || null,
+        supermarket: price2?.supermarket || 'No especificado',
         isPackage: price2?.is_package || false,
         equivalentQuantity: price2?.equivalent_quantity || null,
         equivalentUnit: price2?.equivalent_unit || null,
@@ -672,7 +623,7 @@ app.get('/api/compare/:productId', async (req, res) => {
       priceIncreased: difference > 0,
       priceDecreased: difference < 0
     });
-
+    
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({ error: error.message });
@@ -733,7 +684,50 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // ==============================================
-// RUTAS DE LIMPIEZA (VERSIÓN SIMPLIFICADA)
+// RUTAS DE SUPERMERCADOS
+// ==============================================
+
+// Obtener lista de supermercados
+app.get('/api/supermarkets', async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('supermarkets')
+      .select('name')
+      .order('name');
+    
+    res.json(data.map(s => s.name));
+  } catch (error) {
+    console.error('Error fetching supermarkets:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agregar nuevo supermercado
+app.post('/api/supermarkets', async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'El nombre del supermercado es requerido' });
+    }
+    
+    const { data, error } = await supabase
+      .from('supermarkets')
+      .insert({ name: name.trim() })
+      .select()
+      .single();
+    
+    if (error) throw error;
+    
+    res.json({ success: true, supermarket: data.name });
+  } catch (error) {
+    console.error('Error adding supermarket:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==============================================
+// RUTAS DE LIMPIEZA
 // ==============================================
 
 // Ruta para limpiar todos los datos
@@ -764,7 +758,7 @@ app.delete('/api/clear-all-data', async (req, res) => {
 app.delete('/api/clear-month-data', async (req, res) => {
   try {
     const { monthDate, password } = req.body;
-    const ADMIN_PASSWORD = 'admin123';
+    const ADMIN_PASSWORD = 'admin2206';
 
     if (!password || password !== ADMIN_PASSWORD) {
       return res.status(401).json({ error: 'Contraseña incorrecta' });
@@ -801,6 +795,8 @@ app.listen(PORT, () => {
   console.log(`   GET    /api/compare/:id?month1=&month2=`);
   console.log(`   GET    /api/months`);
   console.log(`   GET    /api/stats`);
+  console.log(`   GET    /api/supermarkets`);
+  console.log(`   POST   /api/supermarkets`);
   console.log(`   DELETE /api/clear-all-data`);
   console.log(`   DELETE /api/clear-month-data`);
   console.log(`\n💾 Base de datos: Supabase PostgreSQL`);

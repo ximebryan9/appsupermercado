@@ -20,6 +20,13 @@ function App() {
   const [stats, setStats] = useState(null)
   const [backendStatus, setBackendStatus] = useState('checking')
   const [showAddSupermarket, setShowAddSupermarket] = useState(false);
+  const [previewData, setPreviewData] = useState([]);
+  const [previewErrors, setPreviewErrors] = useState([]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [editableData, setEditableData] = useState([]);
+  const [tempMonthDate, setTempMonthDate] = useState('');
+  const [tempSupermarket, setTempSupermarket] = useState('');
 
   // supermercados
   const [supermarketsList, setSupermarketsList] = useState([]);
@@ -72,14 +79,17 @@ function App() {
     }
   }
 
-  const fetchSupermarkets = async () => {
-    try {
-      const response = await axios.get('/api/supermarkets');
-      setSupermarketsList(response.data);
-    } catch (error) {
-      console.error('Error fetching supermarkets:', error);
-    }
-  };
+const fetchSupermarkets = async () => {
+  try {
+    const response = await axios.get('/api/supermarkets');
+    console.log('Supermercados cargados:', response.data); // Para depurar
+    setSupermarketsList(response.data);
+  } catch (error) {
+    console.error('Error fetching supermarkets:', error);
+    // Si hay error, usar lista por defecto
+    setSupermarketsList(['Éxito', 'Carulla', 'Jumbo', 'D1', 'Ara', 'Mercacentro', 'Surtimax', 'Olímpica', 'Metro', 'PriceSmart']);
+  }
+};
 
   const addNewSupermarket = async () => {
     if (!newSupermarket.trim()) {
@@ -139,17 +149,16 @@ function App() {
   const handleUpload = async (e) => {
     e.preventDefault()
     
-  console.log('Supermarket seleccionado:', supermarket); 
+    console.log('Supermarket seleccionado:', supermarket); 
 
     if (!file || !monthDate) {
       setMessage('❌ Selecciona un archivo y una fecha')
       return
     }
- // Validar que se haya seleccionado un supermercado válido
-  if (supermarket === 'No especificado') {
-    setMessage('❌ Por favor selecciona un supermercado')
-    return
-  }
+    if (supermarket === 'No especificado') {
+      setMessage('❌ Por favor selecciona un supermercado')
+      return
+    }
     let finalSupermarket = supermarket;
 
     setUploading(true)
@@ -182,6 +191,183 @@ function App() {
       setUploading(false)
     }
   }
+
+const handlePreview = async (e) => {
+  e.preventDefault();
+  
+  if (!file || !monthDate) {
+    setMessage('❌ Selecciona un archivo y una fecha');
+    return;
+  }
+  
+  if (supermarket === 'No especificado') {
+    setMessage('❌ Por favor selecciona un supermercado');
+    return;
+  }
+  
+  setPreviewLoading(true);
+  const formData = new FormData();
+  formData.append('file', file);
+  const fullDate = `${monthDate}-01`;
+  formData.append('monthDate', fullDate);
+  formData.append('supermarket', supermarket);
+  
+  try {
+    const response = await axios.post('/api/preview-excel', formData);
+    
+    if (response.data.success) {
+      // Limpiar los datos para evitar valores null/undefined
+      const cleanedData = response.data.data.map(item => ({
+        ...item,
+        productName: item.productName || '',
+        quantity: item.quantity || 1,
+        unit: item.unit || 'unidad',
+        price: item.price || 0,
+        equivalentQty: item.equivalentQty || null,
+        equivalentUnit: item.equivalentUnit || null,
+        row: item.row || 0,
+        isValid: item.isValid !== false
+      }));
+      
+      setPreviewData(cleanedData);
+      setPreviewErrors(response.data.errors || []);
+      setEditableData(cleanedData);
+      setTempMonthDate(response.data.monthDate);
+      setTempSupermarket(response.data.supermarket);
+      setShowPreview(true);
+    } else {
+      setMessage('❌ Error al previsualizar el archivo');
+    }
+  } catch (error) {
+    setMessage('❌ Error al previsualizar: ' + (error.response?.data?.error || error.message));
+  } finally {
+    setPreviewLoading(false);
+  }
+};
+
+const handleConfirmUpload = async () => {
+  // Validar que hay datos para guardar
+  if (!editableData || editableData.length === 0) {
+    setMessage('❌ No hay datos para guardar');
+    return;
+  }
+  
+  // Validar cada fila antes de guardar
+  const validatedData = [];
+  const validationErrors = [];
+  
+  for (let i = 0; i < editableData.length; i++) {
+    const item = editableData[i];
+    const errors = [];
+    
+    // 1. Validar que el producto no esté vacío
+    if (!item.productName || item.productName.trim() === '') {
+      errors.push(`Fila ${item.row || i + 1}: El nombre del producto no puede estar vacío`);
+    }
+    
+    // 2. Validar que la cantidad sea un número válido y mayor que 0
+    const quantityNum = parseFloat(item.quantity);
+    if (isNaN(quantityNum) || quantityNum <= 0) {
+      errors.push(`Fila ${item.row || i + 1}: Cantidad inválida para "${item.productName || 'producto'}" - Debe ser un número mayor a 0`);
+    }
+    
+    // 3. Validar que la unidad no esté vacía
+    if (!item.unit || item.unit.trim() === '') {
+      errors.push(`Fila ${item.row || i + 1}: Unidad inválida para "${item.productName}" - La unidad no puede estar vacía`);
+    }
+    
+    // 4. Validar que el precio sea un número válido y mayor que 0
+    const priceNum = parseFloat(item.price);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      errors.push(`Fila ${item.row || i + 1}: Precio inválido para "${item.productName}" - Debe ser un número mayor a 0`);
+    }
+    
+    // 5. Validar que el precio sea entero (sin decimales) para productos
+    if (!isNaN(priceNum) && priceNum % 1 !== 0) {
+      errors.push(`Fila ${item.row || i + 1}: Precio inválido para "${item.productName}" - No uses decimales. Ejemplo: 5483 para $5,483`);
+    }
+    
+    // 6. Validar equivalencias: si hay cantidad de equivalencia, debe haber unidad, y viceversa
+    const hasEquivQty = item.equivalentQty && item.equivalentQty !== '' && parseFloat(item.equivalentQty) > 0;
+    const hasEquivUnit = item.equivalentUnit && item.equivalentUnit.trim() !== '';
+    
+    if (hasEquivQty && !hasEquivUnit) {
+      errors.push(`Fila ${item.row || i + 1}: Para "${item.productName}" especificaste una cantidad de equivalencia pero no la unidad`);
+    }
+    
+    if (!hasEquivQty && hasEquivUnit) {
+      errors.push(`Fila ${item.row || i + 1}: Para "${item.productName}" especificaste una unidad de equivalencia pero no la cantidad`);
+    }
+    
+    // 7. Validar que la cantidad de equivalencia sea positiva
+    if (hasEquivQty && parseFloat(item.equivalentQty) <= 0) {
+      errors.push(`Fila ${item.row || i + 1}: La cantidad de equivalencia para "${item.productName}" debe ser mayor a 0`);
+    }
+    
+    if (errors.length > 0) {
+      validationErrors.push(...errors);
+    } else {
+      // Crear objeto limpio para guardar
+      validatedData.push({
+        ...item,
+        productName: item.productName.trim(),
+        unit: item.unit.trim().toLowerCase(),
+        quantity: quantityNum,
+        price: Math.round(priceNum), // Asegurar que sea entero
+        equivalentQty: hasEquivQty ? parseFloat(item.equivalentQty) : null,
+        equivalentUnit: hasEquivQty ? item.equivalentUnit.trim().toLowerCase() : null
+      });
+    }
+  }
+  
+  // Mostrar errores de validación si existen
+  if (validationErrors.length > 0) {
+    const errorMessage = validationErrors.slice(0, 10).join('\n');
+    const moreErrors = validationErrors.length > 10 ? `\n... y ${validationErrors.length - 10} errores más` : '';
+    alert(`❌ Errores de validación:\n${errorMessage}${moreErrors}`);
+    return;
+  }
+  
+  if (validatedData.length === 0) {
+    setMessage('❌ No hay datos válidos para guardar');
+    return;
+  }
+  
+  setUploading(true);
+  try {
+    const response = await axios.post('/api/confirm-upload', {
+      confirmedData: validatedData,
+      monthDate: tempMonthDate,
+      supermarket: tempSupermarket
+    });
+    
+    if (response.data.success) {
+      setMessage(`✅ ${response.data.message} - Guardados: ${response.data.nuevos}, Errores: ${response.data.errores}`);
+      setShowPreview(false);
+      setFile(null);
+      setMonthDate('');
+      setSupermarket('No especificado');
+      const fileInput = document.getElementById('excel-file');
+      if (fileInput) fileInput.value = '';
+      fetchMonths();
+      fetchStats();
+      setPreviewData([]);
+      setEditableData([]);
+    } else {
+      setMessage('❌ Error al guardar los datos');
+    }
+  } catch (error) {
+    setMessage('❌ Error al guardar: ' + (error.response?.data?.error || error.message));
+  } finally {
+    setUploading(false);
+  }
+};
+
+  const handleEditRow = (index, field, value) => {
+    const newData = [...editableData];
+    newData[index][field] = value;
+    setEditableData(newData);
+  };
 
   const handleOpenConfirm = () => {
     if (!clearPassword) {
@@ -373,71 +559,71 @@ function App() {
             <h2>📤 Subir Excel de Precios</h2>
 
             <div className="info-box">
-              <p>📋 El Excel debe tener las siguientes columnas:</p>
-              <ul>
-                <li><strong>Producto</strong> - Nombre del producto</li>
-                <li><strong>Cantidad</strong> - Número de unidades (ej: 2, 0.5, 1.5)</li>
-                <li><strong>Unidad</strong> - Unidad de medida (lb, kg, litro, unidad, docena, etc.)</li>
-                <li><strong>Precio</strong> - Precio total pagado</li>
-                <li><strong>Equivalencia_Cantidad</strong> (opcional) - Para empaques: ¿cuántas unidades base tiene?</li>
-                <li><strong>Equivalencia_Unidad</strong> (opcional) - Unidad base del empaque</li>
-              </ul>
-              <div className="warning-box">
-                <p>⚠️ <strong>¡IMPORTANTE para la columna PRECIO!</strong></p>
-                <p>❌ NO uses puntos ni comas en los precios</p>
-                <p>✅ Ejemplo correcto: <strong>5483</strong> (para $5,483)</p>
-              </div>
-              <div className="example">
-                <p>💡 Ejemplo de formato correcto:</p>
-                <table className="example-table">
-                  <thead>
-                    <tr>
-                      <th>Producto</th>
-                      <th>Cantidad</th>
-                      <th>Unidad</th>
-                      <th>Precio</th>
-                      <th>Equivalencia_Cantidad</th>
-                      <th>Equivalencia_Unidad</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      <td>Pollo</td>
-                      <td>2</td>
-                      <td>kg</td>
-                      <td>16000</td>
-                      <td></td>
-                      <td></td>
-                    </tr>
-                    <tr>
-                      <td>Huevos</td>
-                      <td>30</td>
-                      <td>unidades</td>
-                      <td>12000</td>
-                      <td></td>
-                      <td></td>
-                    </tr>
-                    <tr>
-                      <td>Panal de Huevos</td>
-                      <td>1</td>
-                      <td>panal</td>
-                      <td>12000</td>
-                      <td>30</td>
-                      <td>unidades</td>
-                    </tr>
-                    <tr>
-                      <td>Ciruelas Bandeja</td>
-                      <td>1</td>
-                      <td>bandeja</td>
-                      <td>5000</td>
-                      <td>500</td>
-                      <td>gramos</td>
-                    </tr>
-                  </tbody>
-                </table>
-                <p className="note">✨ El sistema calculará automáticamente el precio por unidad base para comparaciones justas</p>
-              </div>
-            </div>
+  <p>📋 El Excel debe tener las siguientes columnas:</p>
+  <ul>
+    <li><strong>Producto</strong> - Nombre del producto</li>
+    <li><strong>Cantidad</strong> - Número de unidades (ej: 2, 0.5, 1.5)</li>
+    <li><strong>Unidad</strong> - Unidad de medida (lb, kg, litro, unidad, docena, etc.)</li>
+    <li><strong>Precio</strong> - Precio total pagado</li>
+    <li><strong>Equivalencia_Cantidad</strong> (opcional) - Para empaques: ¿cuántas unidades base tiene?</li>
+    <li><strong>Equivalencia_Unidad</strong> (opcional) - Unidad base del empaque</li>
+  </ul>
+  <div className="warning-box">
+    <p>⚠️ <strong>¡IMPORTANTE para la columna PRECIO!</strong></p>
+    <p>❌ NO uses puntos ni comas en los precios</p>
+    <p>✅ Ejemplo correcto: <strong>5483</strong> (para $5,483)</p>
+  </div>
+  <div className="example">
+    <p>💡 Ejemplo de formato correcto:</p>
+    <table className="example-table">
+      <thead>
+        <tr>
+          <th>Producto</th>
+          <th>Cantidad</th>
+          <th>Unidad</th>
+          <th>Precio</th>
+          <th>Equivalencia_Cantidad</th>
+          <th>Equivalencia_Unidad</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Pollo</td>
+          <td>2</td>
+          <td>kg</td>
+          <td>16000</td>
+          <td></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>Huevos</td>
+          <td>30</td>
+          <td>unidades</td>
+          <td>12000</td>
+          <td></td>
+          <td></td>
+        </tr>
+        <tr>
+          <td>Panal de Huevos</td>
+          <td>1</td>
+          <td>panal</td>
+          <td>12000</td>
+          <td>30</td>
+          <td>unidades</td>
+        </tr>
+        <tr>
+          <td>Ciruelas Bandeja</td>
+          <td>1</td>
+          <td>bandeja</td>
+          <td>5000</td>
+          <td>500</td>
+          <td>gramos</td>
+        </tr>
+      </tbody>
+    </table>
+    <p className="note">✨ El sistema calculará automáticamente el precio por unidad base para comparaciones justas</p>
+  </div>
+</div>
 
             <form onSubmit={handleUpload}>
               <div className="form-row">
@@ -473,45 +659,45 @@ function App() {
                 </div>
 
                 <div className="form-col">
-  <div className="form-group supermarket-group">
-    <label>🏪 Selecciona el supermercado <span style={{ color: '#f56565' }}>*</span></label>
-    <div className="supermarket-input-wrapper">
-      <div className="supermarket-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M3 6H21L19 18H5L3 6Z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-          <path d="M8 12L8 15" stroke="currentColor" strokeWidth="1.5"/>
-          <path d="M16 12L16 15" stroke="currentColor" strokeWidth="1.5"/>
-          <circle cx="9" cy="20" r="1.5" fill="currentColor"/>
-          <circle cx="15" cy="20" r="1.5" fill="currentColor"/>
-          <path d="M7 6L7 4" stroke="currentColor" strokeWidth="1.5"/>
-          <path d="M17 6L17 4" stroke="currentColor" strokeWidth="1.5"/>
-        </svg>
-      </div>
-      <select
-        value={supermarket}
-        onChange={(e) => {
-          const value = e.target.value;
-          if (value === '__add_new__') {
-            setShowAddSupermarket(true);
-            setSupermarket('No especificado');
-          } else {
-            setSupermarket(value);
-          }
-        }}
-        className="supermarket-select"
-        required  // 👈 Agrega required
-      >
-        <option value="No especificado" disabled>📌 Selecciona un supermercado</option>
-        {supermarketsList.map(store => (
-          <option key={store} value={store}>🏪 {store}</option>
-        ))}
-        <option value="__add_new__" style={{ color: '#48bb78', fontWeight: 'bold' }}>
-          ➕ Agregar nuevo supermercado...
-        </option>
-      </select>
-    </div>
-  </div>
-</div>
+                  <div className="form-group supermarket-group">
+                    <label>🏪 Selecciona el supermercado <span style={{ color: '#f56565' }}>*</span></label>
+                    <div className="supermarket-input-wrapper">
+                      <div className="supermarket-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 6H21L19 18H5L3 6Z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                          <path d="M8 12L8 15" stroke="currentColor" strokeWidth="1.5"/>
+                          <path d="M16 12L16 15" stroke="currentColor" strokeWidth="1.5"/>
+                          <circle cx="9" cy="20" r="1.5" fill="currentColor"/>
+                          <circle cx="15" cy="20" r="1.5" fill="currentColor"/>
+                          <path d="M7 6L7 4" stroke="currentColor" strokeWidth="1.5"/>
+                          <path d="M17 6L17 4" stroke="currentColor" strokeWidth="1.5"/>
+                        </svg>
+                      </div>
+                      <select
+                        value={supermarket}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === '__add_new__') {
+                            setShowAddSupermarket(true);
+                            setSupermarket('No especificado');
+                          } else {
+                            setSupermarket(value);
+                          }
+                        }}
+                        className="supermarket-select"
+                        required
+                      >
+                        <option value="No especificado" disabled>📌 Selecciona un supermercado</option>
+                        {supermarketsList.map(store => (
+                          <option key={store} value={store}>🏪 {store}</option>
+                        ))}
+                        <option value="__add_new__" style={{ color: '#48bb78', fontWeight: 'bold' }}>
+                          ➕ Agregar nuevo supermercado...
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="form-col">
                   <div className="form-group file-group">
@@ -572,16 +758,23 @@ function App() {
                 </div>
               )}
 
-              <button type="submit" disabled={uploading} className="upload-btn">
-                {uploading ? (
-                  <>
-                    <span className="spinner"></span>
-                    Subiendo...
-                  </>
-                ) : (
-                  <>🚀 Subir Excel</>
-                )}
-              </button>
+              <div className="preview-buttons">
+                <button 
+                  type="button" 
+                  onClick={handlePreview} 
+                  disabled={previewLoading}
+                  className="preview-btn"
+                >
+                  {previewLoading ? (
+                    <>
+                      <span className="spinner"></span>
+                      Analizando...
+                    </>
+                  ) : (
+                    '👁️ Previsualizar'
+                  )}
+                </button>
+              </div>
             </form>
 
             {message && <div className="message">{message}</div>}
@@ -636,7 +829,7 @@ function App() {
                                   <td>
                                     {item.quantity} {item.unit}
                                     {hasEquivalencia && <span className="equivalencia-note"> (equivale a {item.quantity * item.equivalentQuantity} {item.equivalentUnit})</span>}
-                                  </td>
+                                   </td>
                                   <td className="supermarket-cell">🏪 {item.supermarket || 'No especificado'}</td>
                                   <td>${typeof item.price === 'number' ? item.price.toLocaleString() : item.price}</td>
                                   <td className="price-value">{precioUnidadTexto}</td>
@@ -662,7 +855,7 @@ function App() {
               <>
                 <h2>🔍 Buscar Productos</h2>
                 <div className="search-box">
-                  <input type="text" placeholder="🔎 Buscar por nombre de producto... (ej: Pollo, Leche, Huevos)" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSearch()} />
+                  <input type="text" placeholder="🔎 Buscar por nombre de producto..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyPress={(e) => e.key === 'Enter' && handleSearch()} />
                   <button onClick={handleSearch}>🔍 Buscar</button>
                 </div>
                 {searchResults.length > 0 && (
@@ -841,6 +1034,137 @@ function App() {
             <div className="modal-buttons">
               <button className="cancel-btn" onClick={() => setShowConfirmModal(false)}>No, Cancelar</button>
               <button className="confirm-clear-btn" onClick={clearType === 'all' ? handleClearAllData : handleClearMonthData} disabled={clearing}>{clearing ? 'Eliminando...' : 'Sí, Eliminar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de previsualización con equivalencias editables */}
+      {showPreview && (
+        <div className="modal-overlay" onClick={() => setShowPreview(false)}>
+          <div className="modal-content preview-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="close-btn" onClick={() => setShowPreview(false)}>✖</button>
+            <h2>📋 Previsualizar Datos</h2>
+            
+            {previewErrors.length > 0 && (
+              <div className="preview-errors">
+                <p>⚠️ Se encontraron {previewErrors.length} errores:</p>
+                <ul>
+                  {previewErrors.slice(0, 5).map((err, idx) => (
+                    <li key={idx}>{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div className="preview-table-container">
+              <table className="preview-table">
+                <thead>
+                  <tr>
+                    <th>Fila</th>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Unidad</th>
+                    <th>Precio</th>
+                    <th>Equivalencia Cantidad</th>
+                    <th>Equivalencia Unidad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editableData.map((item, idx) => (
+                    <tr key={idx} className={item.isValid === false ? 'invalid-row' : ''}>
+  <td>{item.row}</td>
+  <td>
+    <input
+      type="text"
+      value={item.productName}
+      onChange={(e) => handleEditRow(idx, 'productName', e.target.value)}
+      className="preview-input"
+    />
+  </td>
+  <td>
+    <input
+      type="number"
+      step="0.001"
+      value={item.quantity}
+      onChange={(e) => handleEditRow(idx, 'quantity', parseFloat(e.target.value))}
+      className="preview-input preview-input-small"
+    />
+  </td>
+  <td>
+    <select
+      value={item.unit}
+      onChange={(e) => handleEditRow(idx, 'unit', e.target.value)}
+      className="preview-select preview-select-small"
+    >
+      <option value="kg">kg (kilogramos)</option>
+      <option value="g">g (gramos)</option>
+      <option value="lb">lb (libras)</option>
+      <option value="litro">litro</option>
+      <option value="unidad">unidad</option>
+      <option value="bandeja">bandeja</option>
+      <option value="panal">panal</option>
+      <option value="caja">caja</option>
+      <option value="bolsa">bolsa</option>
+    </select>
+  </td>
+  <td>
+    <input
+      type="number"
+      value={item.price}
+      onChange={(e) => handleEditRow(idx, 'price', parseInt(e.target.value))}
+      className="preview-input"
+    />
+  </td>
+  <td>
+    <input
+      type="number"
+      step="0.001"
+      value={item.equivalentQty || ''}
+      onChange={(e) => handleEditRow(idx, 'equivalentQty', e.target.value ? parseFloat(e.target.value) : null)}
+      className="preview-input preview-input-small"
+      placeholder="Opcional"
+    />
+  </td>
+  <td>
+    <select
+      value={item.equivalentUnit || ''}
+      onChange={(e) => handleEditRow(idx, 'equivalentUnit', e.target.value || null)}
+      className="preview-select preview-select-small"
+    >
+      <option value="">-- Ninguna --</option>
+      <option value="kg">kg (kilogramos)</option>
+      <option value="g">g (gramos)</option>
+      <option value="lb">lb (libras)</option>
+      <option value="litro">litro</option>
+      <option value="unidad">unidad</option>
+      <option value="gramos">gramos</option>
+      <option value="unidades">unidades</option>
+    </select>
+  </td>
+</tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            <div className="preview-summary">
+              <p>📊 Total productos: {editableData.length}</p>
+              <p>🏪 Supermercado: {tempSupermarket}</p>
+              <p>📅 Mes: {tempMonthDate}</p>
+            </div>
+            
+            <div className="modal-buttons">
+              <button className="cancel-btn" onClick={() => setShowPreview(false)}>
+                Cancelar
+              </button>
+              <button 
+                className="confirm-upload-btn" 
+                onClick={handleConfirmUpload}
+                disabled={uploading}
+              >
+                {uploading ? 'Guardando...' : '✅ Confirmar y Guardar'}
+              </button>
             </div>
           </div>
         </div>

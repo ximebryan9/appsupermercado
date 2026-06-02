@@ -682,7 +682,230 @@ app.get('/api/stats', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+// ==============================================
+// RUTA PARA PREVISUALIZAR EXCEL (NO GUARDA)
+// ==============================================
+app.post('/api/preview-excel', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const { monthDate, supermarket } = req.body;
+    
+    if (!file || !monthDate) {
+      return res.status(400).json({ error: 'Faltan archivo o fecha' });
+    }
+    
+    console.log(`📥 Previsualizando: ${file.originalname} para ${monthDate}`);
+    
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+    
+    const previewData = [];
+    const errors = [];
+    
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      
+      const productName = row['Producto'] || row['producto'];
+      const quantity = row['Cantidad'] || row['cantidad'];
+      const unit = row['Unidad'] || row['unidad'];
+      const price = row['Precio'] || row['precio'];
+      const equivQty = row['Equivalencia_Cantidad'] || row['equiv_cantidad'] || null;
+      const equivUnit = row['Equivalencia_Unidad'] || row['equiv_unidad'] || null;
+      
+      let cleanPriceValue = null;
+      let priceError = null;
+      
+      if (!productName) {
+        errors.push(`Fila ${i + 2}: Falta nombre del producto`);
+        continue;
+      }
+      
+      if (!price) {
+        errors.push(`Fila ${i + 2}: Falta precio para "${productName}"`);
+        continue;
+      }
+      
+      cleanPriceValue = cleanPrice(price);
+      
+      if (cleanPriceValue === null || cleanPriceValue <= 0) {
+        errors.push(`Fila ${i + 2}: Precio inválido para "${productName}"`);
+        continue;
+      }
+      
+      let quantityNum;
+      if (typeof quantity === 'number') {
+        quantityNum = quantity;
+      } else {
+        quantityNum = parseFloat(String(quantity).replace(',', '.').replace(/[^0-9.-]/g, ''));
+      }
+      
+      if (isNaN(quantityNum) || quantityNum <= 0) {
+        quantityNum = 1;
+      }
+      
+      let cleanUnitValue = unit ? String(unit).trim().toLowerCase() : 'unidad';
+      cleanUnitValue = cleanUnit(cleanUnitValue);
+      
+      previewData.push({
+        row: i + 2,
+        productName: productName.trim(),
+        quantity: quantityNum,
+        unit: cleanUnitValue,
+        price: cleanPriceValue,
+        originalPrice: price,
+        equivalentQty: equivQty,
+        equivalentUnit: equivUnit,
+        isValid: true
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: previewData,
+      errors: errors,
+      totalRows: data.length,
+      validRows: previewData.length,
+      monthDate: monthDate,
+      supermarket: supermarket
+    });
+    
+  } catch (error) {
+    console.error('❌ Error en previsualización:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
+// ==============================================
+// RUTA PARA CONFIRMAR Y GUARDAR
+// ==============================================
+app.post('/api/confirm-upload', async (req, res) => {
+  try {
+    const { confirmedData, monthDate, supermarket } = req.body;
+    
+    if (!confirmedData || !confirmedData.length) {
+      return res.status(400).json({ error: 'No hay datos para guardar' });
+    }
+    
+    if (!monthDate) {
+      return res.status(400).json({ error: 'Falta la fecha del mes' });
+    }
+    
+    if (!supermarket || supermarket === 'No especificado') {
+      return res.status(400).json({ error: 'Debes seleccionar un supermercado' });
+    }
+    
+    let successCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
+    for (const item of confirmedData) {
+      try {
+        // Buscar o crear producto
+        let { data: existingProduct } = await supabase
+          .from('products')
+          .select('id')
+          .ilike('name', item.productName.trim())
+          .maybeSingle();
+        
+        let productId;
+        
+        if (!existingProduct) {
+          const { data: newProduct, error: insertError } = await supabase
+            .from('products')
+            .insert({
+              name: item.productName.trim(),
+              default_quantity: item.quantity,
+              default_unit: item.unit,
+              unit_type: !['kg', 'g', 'lb', 'litro', 'ml', 'unidad'].includes(item.unit) ? 'package' : 'basic'
+            })
+            .select()
+            .single();
+          
+          if (insertError) throw insertError;
+          productId = newProduct.id;
+        } else {
+          productId = existingProduct.id;
+        }
+        
+        // Calcular precio por unidad
+        const isPackage = !['kg', 'g', 'lb', 'litro', 'ml', 'unidad'].includes(item.unit);
+        let pricePerUnit = null;
+        
+        if (isPackage && item.equivalentQty) {
+          pricePerUnit = item.price / (item.quantity * parseFloat(item.equivalentQty));
+        } else if (!isPackage) {
+          pricePerUnit = item.price / item.quantity;
+        }
+        
+        if (pricePerUnit !== null) {
+          pricePerUnit = Math.round(pricePerUnit * 100) / 100;
+        }
+        
+        // Verificar si ya existe
+        const { data: existingPrice } = await supabase
+          .from('price_history')
+          .select('id')
+          .eq('product_id', productId)
+          .eq('month_date', monthDate)
+          .maybeSingle();
+        
+        if (existingPrice) {
+          const { error } = await supabase
+            .from('price_history')
+            .update({
+              price: item.price,
+              quantity: item.quantity,
+              unit: item.unit,
+              price_per_unit: pricePerUnit,
+              is_package: isPackage,
+              equivalent_quantity: item.equivalentQty,
+              equivalent_unit: item.equivalentUnit,
+              supermarket: supermarket
+            })
+            .eq('id', existingPrice.id);
+          
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('price_history')
+            .insert({
+              product_id: productId,
+              price: item.price,
+              quantity: item.quantity,
+              unit: item.unit,
+              price_per_unit: pricePerUnit,
+              month_date: monthDate,
+              is_package: isPackage,
+              equivalent_quantity: item.equivalentQty,
+              equivalent_unit: item.equivalentUnit,
+              supermarket: supermarket
+            });
+          
+          if (error) throw error;
+        }
+        
+        successCount++;
+        
+      } catch (error) {
+        errorCount++;
+        errors.push(`${item.productName}: ${error.message}`);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Datos guardados correctamente',
+      nuevos: successCount,
+      errores: errorCount,
+      erroresDetalle: errors
+    });
+    
+  } catch (error) {
+    console.error('❌ Error guardando datos:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 // ==============================================
 // RUTAS DE SUPERMERCADOS
 // ==============================================
